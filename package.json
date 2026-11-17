@@ -18,7 +18,8 @@
     "check:toc": "tsx tools/build-toc/index.ts --check",
     "inventory:ids": "tsx tools/inventory-ids/index.ts",
     "build:addon": "tsx tools/build-addon/index.ts",
-    "check:addon": "tsx tools/build-addon/index.ts --check-manifests --check-residue --check-lines"
+    "check:addon": "tsx tools/build-addon/index.ts --check-manifests --check-residue --check-lines",
+    "lint:guides": "tsx tools/lint-guides/index.ts"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

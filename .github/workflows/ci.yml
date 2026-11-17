@@ -93,3 +93,4 @@ jobs:
       - run: npm run check:manifests
       - run: npm run check:origins
       - run: npm run check:addon
+      - run: npm run lint:guides
