@@ -14,6 +14,12 @@
 --   * WF:Guard / WF:Call: guarded calls that record errors for the field log
 --     (docs/FIELD_LOG.md section 3 "Errors") and re-raise to geterrorhandler().
 --   * WF:RunChunked: runs small steps across frames under a time budget.
+--   * WF:On / WF:Off / WF:Fire: in-process notifications between our modules
+--     ("error" fires for every recorded error; "selftest" when a run ends).
+--   * Per-module options: def.options adds extra toggles under the module's
+--     toggle on the options page (WF:GetOption / WF:SetOption).
+--   * WF.Log: the field-log writer. A no-op returning false until
+--     Modules/FieldLog.lua replaces it, so any module may call it.
 -- Release vs development defaults come from the TOC Version (0.x or -dev).
 -- Licence: CC BY-NC-SA 4.0, Wayfinder contributors
 -- Date: 2026-11-17
@@ -35,10 +41,20 @@ local order = {} -- ids in registration order
 local slashOwners = {} -- lower-case subcommand -> module id
 local runs = {} -- active RunChunked handles -> true
 local errorIndex = {} -- module .. "\0" .. message -> error record
+local listeners = {} -- notification name -> array of functions
+local firing = {} -- notification name -> true while its listeners run
+local optionDefs = {} -- option key -> { key, title, desc, default, module }
+local MAX_MODULE_OPTIONS = 8
 
 -- Session error list for the field log: { message, stack, module, count, time }.
 WF.errors = {}
 WF.droppedErrors = 0
+
+--- The field-log writer: Modules/FieldLog.lua replaces this. Until then (or
+--- when that file is not loaded) logging is a no-op that returns false.
+function WF.Log()
+    return false
+end
 
 local function pack(...)
     return { n = select("#", ...), ... }
@@ -122,6 +138,7 @@ function WF:ReportError(moduleId, message, stack)
     if type(handler) == "function" then
         pcall(handler, stack and (message .. "\n" .. stack) or message)
     end
+    if record then self:Fire("error", record) end
     return record, message
 end
 
@@ -160,6 +177,47 @@ function WF:Guard(moduleId, fn)
     return function(...)
         return select(2, core:Call(moduleId, fn, ...))
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Notifications between our modules
+
+--- Call fn(...) whenever WF:Fire(name, ...) runs. Returns fn (for WF:Off).
+function WF.On(_, name, fn)
+    assert(type(name) == "string" and type(fn) == "function", "WF:On: name and fn are required")
+    local list = listeners[name]
+    if not list then
+        list = {}
+        listeners[name] = list
+    end
+    for _, existing in ipairs(list) do
+        if existing == fn then return fn end
+    end
+    list[#list + 1] = fn
+    return fn
+end
+
+--- Stop calling fn for name.
+function WF.Off(_, name, fn)
+    local list = listeners[name]
+    if not list then return end
+    for i = #list, 1, -1 do
+        if list[i] == fn then table.remove(list, i) end
+    end
+end
+
+--- Call every listener of name with (...), in subscription order. A listener
+--- that throws is recorded like any guarded error and the others still run.
+--- A notification fired from inside one of its own listeners is dropped, so
+--- an "error" listener that fails cannot loop.
+function WF:Fire(name, ...)
+    local list = listeners[name]
+    if not list or firing[name] then return end
+    firing[name] = true
+    local snapshot = {}
+    for i, fn in ipairs(list) do snapshot[i] = fn end
+    for _, fn in ipairs(snapshot) do self:Call(CORE_ID, fn, ...) end
+    firing[name] = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -263,8 +321,28 @@ local RESERVED_SLASH = {
     bug = true, feedback = true, preview = true, help = true, import = true,
 }
 
+-- Validate def.options; returns the list (possibly empty).
+local function checkOptions(id, def)
+    local list = def.options or {}
+    assert(type(list) == "table" and #list <= MAX_MODULE_OPTIONS, "WF:RegisterModule: bad options list")
+    for _, option in ipairs(list) do
+        assert(type(option) == "table" and type(option.key) == "string" and option.key:match("^%a[%w_]*$"),
+            "WF:RegisterModule: option key must be a plain word")
+        assert(not optionDefs[option.key], "WF:RegisterModule: option '" .. option.key .. "' is taken")
+        assert(type(option.title) == "string", "WF:RegisterModule: option title must be a string")
+        assert(type(option.default) == "boolean", "WF:RegisterModule: option default must be a boolean")
+    end
+    for _, option in ipairs(list) do
+        optionDefs[option.key] = { key = option.key, title = option.title, desc = option.desc,
+            default = option.default, module = id }
+    end
+    return list
+end
+
 --- def = { title, desc, default (boolean), devDefault (optional boolean),
----         OnEnable(def), OnDisable(def), slash = { name = handler(args) } }
+---         OnEnable(def), OnDisable(def), slash = { name = handler(args) },
+---         options = { { key, title, desc, default (boolean) }, ... } (optional,
+---         at most 8; keys are global across modules) }
 function WF:RegisterModule(id, def)
     assert(type(id) == "string" and id:match("^%a[%w_]*$"), "WF:RegisterModule: id must be a plain word")
     assert(id ~= CORE_ID and not modules[id], "WF:RegisterModule: id '" .. id .. "' is taken")
@@ -281,6 +359,7 @@ function WF:RegisterModule(id, def)
         assert(not RESERVED_SLASH[key] and not slashOwners[key], "WF:RegisterModule: slash '" .. key .. "' is taken")
         handlers[key] = handler
     end
+    checkOptions(id, def)
     for key in pairs(handlers) do slashOwners[key] = id end
     modules[id] = { id = id, def = def, enabled = false, slash = handlers }
     order[#order + 1] = id
@@ -357,6 +436,27 @@ function WF:SetEnabled(id, on)
     notifyOptions(self)
 end
 
+--- A module option as the player set it (WayfinderData.options), or its
+--- default if never set. Unknown keys read as false.
+function WF:GetOption(key)
+    local def = optionDefs[key]
+    if not def then return false end
+    local options = self.db and self.db.options
+    if type(options) == "table" and options[key] ~= nil then return options[key] and true or false end
+    return def.default
+end
+
+--- Save a module option and fire "option" (key, value).
+function WF:SetOption(key, value)
+    assert(optionDefs[key], "WF:SetOption: unknown option '" .. tostring(key) .. "'")
+    assert(self.db, "WF:SetOption: called before WF:Initialize")
+    if type(self.db.options) ~= "table" then self.db.options = {} end
+    value = value and true or false
+    self.db.options[key] = value
+    self:Fire("option", key, value)
+    notifyOptions(self)
+end
+
 -- ---------------------------------------------------------------------------
 -- Options page
 
@@ -387,6 +487,19 @@ function WF:BuildOptionsTable()
             order = i * 10 + 1,
             name = def.desc or "",
         }
+        for j, option in ipairs(def.options or {}) do
+            local key = option.key
+            args[id .. "_opt_" .. key] = {
+                type = "toggle",
+                order = i * 10 + 1 + j,
+                width = "full",
+                name = "    " .. option.title,
+                desc = option.desc,
+                disabled = function() return not core:GetToggle(id) end,
+                get = function() return core:GetOption(key) end,
+                set = function(_, value) core:SetOption(key, value) end,
+            }
+        end
     end
     return { type = "group", name = OPTIONS_APP, args = args }
 end

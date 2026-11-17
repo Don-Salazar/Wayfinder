@@ -389,6 +389,101 @@ describe("Modules/Core.lua", function()
     end)
   end)
 
+  describe("notifications", function()
+    it("calls listeners in order with the arguments, and stops after Off", function()
+      load_core()
+      local seen = {}
+      local a = WF:On("ping", function(x, y) seen[#seen + 1] = "a" .. x .. y end)
+      WF:On("ping", function(x) seen[#seen + 1] = "b" .. x end)
+      WF:On("ping", a) -- a second On of the same function is ignored
+      WF:Fire("ping", 1, 2)
+      assert.are.same({ "a12", "b1" }, seen)
+      WF:Off("ping", a)
+      WF:Fire("ping", 3, 4)
+      assert.are.same({ "a12", "b1", "b3" }, seen)
+      WF:Fire("nobody", 1) -- no listeners: nothing happens
+    end)
+
+    it("records a throwing listener and still runs the others", function()
+      load_core()
+      local ran = false
+      WF:On("ping", function() error("listener broke") end)
+      WF:On("ping", function() ran = true end)
+      WF:Fire("ping")
+      assert.is_true(ran)
+      assert.are.equal(1, #WF.errors)
+      assert.are.equal("core", WF.errors[1].module)
+    end)
+
+    it("fires \"error\" for each recorded error, without looping on a failing listener", function()
+      load_core()
+      local records = {}
+      WF:On("error", function(record) records[#records + 1] = record.count end)
+      local f = WF:Guard("test", function() error("boom") end)
+      f()
+      f()
+      assert.are.same({ 1, 2 }, records)
+      WF:On("error", function() error("error listener broke") end)
+      f()
+      assert.are.equal(2, #WF.errors) -- boom, plus the listener's own error recorded once
+    end)
+
+    it("keeps WF.Log a no-op until the field log replaces it", function()
+      load_core()
+      assert.is_false(WF.Log("note", { tx = "x" }))
+    end)
+  end)
+
+  describe("module options", function()
+    local function with_option(default)
+      return test_module({ slash = {}, options = {
+        { key = "testOption", title = "Test option", desc = "An option.", default = default },
+      } })
+    end
+
+    it("reads the default, saves a change and fires \"option\"", function()
+      load_core()
+      WF:RegisterModule("test", with_option(false))
+      WF:Initialize()
+      local fired = {}
+      WF:On("option", function(key, value) fired[#fired + 1] = key .. "=" .. tostring(value) end)
+      assert.is_false(WF:GetOption("testOption"))
+      WF:SetOption("testOption", true)
+      assert.is_true(WF:GetOption("testOption"))
+      assert.is_true(WF.db.options.testOption)
+      assert.are.same({ "testOption=true" }, fired)
+      assert.is_false(WF:GetOption("unknown"))
+      assert.has_error(function() WF:SetOption("unknown", true) end)
+    end)
+
+    it("shows options under their module's toggle, disabled while the module is off", function()
+      load_core()
+      WF:RegisterModule("test", with_option(true))
+      WF:Initialize()
+      WF:Start()
+      local args = WF:BuildOptionsTable().args
+      local option = args.test_opt_testOption
+      assert.are.equal("toggle", option.type)
+      assert.is_true(option.order > args.test_desc.order and option.order < 20)
+      assert.is_true(option.disabled())
+      assert.is_true(option.get())
+      option.set(nil, false)
+      assert.is_false(WF:GetOption("testOption"))
+    end)
+
+    it("rejects bad or duplicate option keys", function()
+      load_core()
+      WF:RegisterModule("a", with_option(false))
+      assert.has_error(function() WF:RegisterModule("b", with_option(false)) end)
+      assert.has_error(function()
+        WF:RegisterModule("c", test_module({ slash = {}, options = { { key = "x y", title = "X", default = false } } }))
+      end)
+      assert.has_error(function()
+        WF:RegisterModule("d", test_module({ slash = {}, options = { { key = "z", title = "Z" } } }))
+      end)
+    end)
+  end)
+
   describe("RunChunked", function()
     local function steps(n, log)
       local list = {}

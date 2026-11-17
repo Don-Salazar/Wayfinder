@@ -22,7 +22,8 @@
     "lint:guides": "tsx tools/lint-guides/index.ts",
     "savedvars": "tsx tools/read-savedvars/index.ts",
     "dump:seeds": "tsx tools/dump-seeds/index.ts",
-    "dump:research": "tsx tools/dump-to-research/index.ts"
+    "dump:research": "tsx tools/dump-to-research/index.ts",
+    "analyze:log": "tsx tools/analyze-log/index.ts"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
