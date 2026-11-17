@@ -1,0 +1,42 @@
+# GENERATED FILE - do not edit. Built by tools/build-toc from RXPGuides.toc (RestedXP upstream commit 22e6ce26e2855ec730d50d40f8a7d5cd733a7327). Edit tools/build-toc/config.json and run "npm run build:toc".
+## Interface: 16001
+## Title: Wayfinder
+## Notes: Leveling guide for WoW: Forever. Based on RestedXP Guides (CC BY-NC-SA 4.0).
+## Author: Wayfinder contributors
+## Version: 0.1.0-dev
+## OptionalDeps: Questie, RXPGuides_Themes
+## SavedVariables: RXPData, RXPDB, RXPSettings, RXPString
+## SavedVariablesPerCharacter: RXPCData, RXPCTrackingData, RXPCComms, RXPCSettings
+
+libs\embeds_Mainline.xml
+locale\locales.xml
+UI\includes.xml
+Locale.lua
+Themes.lua
+Communications.lua
+RXPGuides.lua
+GuideWindow.lua
+Help.lua
+SettingsPanel.lua
+DB/forever.xml
+HSBatching.lua
+QuestLog.lua
+ActiveItemFrame.lua
+LevelingTracker.lua
+Timers.lua
+Targeting.lua
+Tips.lua
+InventoryManager.lua
+map.lua
+functions.lua
+GuideLoader.lua
+Guides/GuideList-forever.xml
+lang/Guides-zhCN/GuideList-forever.xml
+lang/Guides-deDE/GuideList-forever.xml
+lang/Guides-esES/GuideList-forever.xml
+lang/Guides-frFR/GuideList-forever.xml
+lang/Guides-ptBR/GuideList-forever.xml
+Talents.lua
+Guides/Talents/classic.xml
+ItemUpgrades.lua
+CptStadicsVendorTreasures.lua

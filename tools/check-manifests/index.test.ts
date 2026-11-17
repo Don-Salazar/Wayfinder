@@ -124,3 +124,28 @@ test("baseline comparison ignores line numbers", () => {
   assert.deepEqual(res.fresh.map(findingKey), [findingKey(other)]);
   assert.equal(res.stale.length, 1);
 });
+
+test("baseline key separates addons; entries without addon mean RXPGuides", () => {
+  const f = { gameType: "camelot" as const, kind: "case" as const, from: "UI/includes.xml", line: 2, ref: "V2\\Manifest.xml", detail: "" };
+  const upstreamOnly = [{ gameType: "camelot" as const, kind: "case" as const, from: "UI/includes.xml", ref: "V2\\Manifest.xml" }];
+  assert.deepEqual(compareToBaseline([{ ...f, addon: "RXPGuides" }], upstreamOnly), { fresh: [], stale: [] });
+  const res = compareToBaseline([{ ...f, addon: "Wayfinder" }], upstreamOnly);
+  assert.equal(res.fresh.length, 1);
+  assert.equal(res.stale.length, 1);
+});
+
+test("loadOrder: untagged TOC lines load for every game type; a file loaded twice is a finding", () => {
+  const fx = fixture({
+    "W.toc": "## Interface: 16001\nlibs\\embeds.xml\nCore.lua\ncore.lua\n",
+    "libs/embeds.xml": `<Ui><Script file="..\\Core.lua"/><Script file="Lib.lua"/></Ui>`,
+    "libs/Lib.lua": "",
+    "Core.lua": "",
+  });
+  const r = loadOrder("camelot", { ...fx, addon: "W" });
+  assert.deepEqual(r.files.map((f) => f.path), ["W.toc", "libs/embeds.xml", "Core.lua", "libs/Lib.lua"]);
+  assert.deepEqual(r.findings.map((f) => [f.addon, f.kind, f.from, f.ref]), [
+    ["W", "duplicate", "W.toc", "Core.lua"],
+    ["W", "case", "W.toc", "core.lua"],
+    ["W", "duplicate", "W.toc", "core.lua"],
+  ]);
+});

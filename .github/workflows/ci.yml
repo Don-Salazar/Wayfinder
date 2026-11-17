@@ -35,8 +35,9 @@ jobs:
           luarocks install luacheck 1.2.0-1
           luarocks install busted 2.2.0-1
 
+      # -q: print only files with problems; plain: one "file:line:col: (Wxxx) msg" line each.
       - name: luacheck
-        run: luacheck .
+        run: luacheck . -q --formatter plain
 
       - name: busted
         run: busted
@@ -60,5 +61,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run check:toc
       - run: npm run check:manifests
       - run: npm run check:origins

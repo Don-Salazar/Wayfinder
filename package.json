@@ -14,6 +14,8 @@
     "research:convert": "tsx tools/research-to-md/index.ts",
     "check:manifests": "tsx tools/check-manifests/index.ts",
     "check:origins": "tsx tools/check-origins/index.ts",
+    "build:toc": "tsx tools/build-toc/index.ts",
+    "check:toc": "tsx tools/build-toc/index.ts --check",
     "inventory:ids": "tsx tools/inventory-ids/index.ts"
   },
   "devDependencies": {

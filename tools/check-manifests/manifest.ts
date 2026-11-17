@@ -35,6 +35,11 @@ const KNOWN_GAME_TYPES: Record<string, string> = {
   wowhack: "wowhack",
 };
 
+/** Canonical game type for a tag value (aliases mapped), or undefined if the client does not know it. */
+export function canonicalGameType(value: string): string | undefined {
+  return KNOWN_GAME_TYPES[value.trim().toLowerCase()];
+}
+
 const FAMILY: Record<GameType, "Mainline" | "Classic"> = {
   standard: "Mainline",
   camelot: "Mainline",
@@ -66,9 +71,11 @@ const GAME_VARIABLE: Record<GameType, string> = {
   mists: "Mists",
 };
 
-export type FindingKind = "missing" | "case" | "xml-error" | "unknown-directive" | "outside-addon";
+export type FindingKind = "missing" | "case" | "xml-error" | "unknown-directive" | "outside-addon" | "duplicate";
 
 export interface Finding {
+  /** Addon (TOC base name) whose load produced this finding. */
+  addon?: string;
   gameType: GameType;
   kind: FindingKind;
   /** File containing the reference (TOC or XML), relative to the addon root. */
@@ -93,6 +100,7 @@ export interface LoadedFile {
 }
 
 export interface LoadResult {
+  addon?: string;
   gameType: GameType;
   toc: string | null;
   files: LoadedFile[];
@@ -281,15 +289,16 @@ export function loadOrder(gameType: GameType, opts: LoadOptions): LoadResult {
   const index = opts.index ?? FileIndex.fromDisk(opts.root);
   const read = opts.read ?? ((p: string) => readFileSync(join(opts.root, p), "utf8"));
   const addon = opts.addon ?? addonNames(index)[0];
-  const result: LoadResult = { gameType, toc: null, files: [], findings: [] };
-  if (!addon) return result;
+  if (!addon) return { gameType, toc: null, files: [], findings: [] };
+  const result: LoadResult = { addon, gameType, toc: null, files: [], findings: [] };
   const toc = selectToc(index, addon, gameType);
   result.toc = toc;
   if (!toc) return result;
   result.files.push({ path: toc, kind: "toc", from: "", line: 0, exists: true, via: "toc" });
 
-  const finding = (f: Omit<Finding, "gameType">) => result.findings.push({ gameType, ...f });
+  const finding = (f: Omit<Finding, "gameType" | "addon">) => result.findings.push({ addon, gameType, ...f });
   const visited = new Set<string>();
+  const loaded = new Map<string, string>(); // lower-case path -> "from:line" of the first load
 
   const addRef = (from: string, line: number, rawRef: TocLine, fromXml: boolean) => {
     for (const u of rawRef.unknown) finding({ kind: "unknown-directive", from, line, ref: rawRef.path, detail: `unknown bracket token ${u}` });
@@ -325,6 +334,12 @@ export function loadOrder(gameType: GameType, opts: LoadOptions): LoadResult {
     if (actual !== candidate) {
       finding({ kind: "case", from, line, ref, actual, detail: `case differs from disk: "${candidate}" vs "${actual}"` });
     }
+    const first = loaded.get(actual.toLowerCase());
+    if (first !== undefined) {
+      finding({ kind: "duplicate", from, line, ref, actual, detail: `already loaded from ${first}` });
+      return;
+    }
+    loaded.set(actual.toLowerCase(), `${from}:${line}`);
     result.files.push({ path: actual, kind: kindOf(actual), from, line, exists: true, ...(via ? { via } : {}) });
     if (kindOf(actual) === "xml") loadXml(actual);
   };

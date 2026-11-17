@@ -1,0 +1,22 @@
+{
+  "description": "Input for tools/build-toc. Wayfinder.toc is generated from upstream's RXPGuides.toc: the file lines that load for gameType, minus 'drop', under the header below. Header values are written in this order; the value \"inherit\" copies upstream's line unchanged. Upstream metadata not named here (X-*, Interface-*, Title-*, Category*) is not carried over.",
+  "upstreamToc": "RXPGuides.toc",
+  "output": "Wayfinder.toc",
+  "addon": "Wayfinder",
+  "gameType": "camelot",
+  "header": {
+    "Interface": "16001",
+    "Title": "Wayfinder",
+    "Notes": "Leveling guide for WoW: Forever. Based on RestedXP Guides (CC BY-NC-SA 4.0).",
+    "Author": "Wayfinder contributors",
+    "Version": "0.1.0-dev",
+    "OptionalDeps": "inherit",
+    "SavedVariables": "inherit",
+    "SavedVariablesPerCharacter": "inherit"
+  },
+  "drop": [],
+  "ship": {
+    "extraFiles": ["Bindings.xml", "LICENSE", "NOTICE.md"],
+    "assetDirs": ["Textures"]
+  }
+}
