@@ -24,6 +24,14 @@ exclude_files = {
   ".tools/**",
   "node_modules/**",
   ".git/**",
+  -- CI only: leafo/gh-actions-lua installs Lua into ".lua/" and
+  -- leafo/gh-actions-luarocks installs LuaRocks (prefix, so also the rocks
+  -- `luarocks install` adds: luacheck, busted and their deps) into
+  -- ".luarocks/", both inside the workspace (their READMEs/main.js, read
+  -- 2026-11-17). Without these, `luacheck .` lints third-party rocks under
+  -- the strict policy and fails.
+  ".lua/**",
+  ".luarocks/**",
 }
 
 -- Lua 5.1 as WoW exposes it: no io, os, require/dofile/loadfile, package,
