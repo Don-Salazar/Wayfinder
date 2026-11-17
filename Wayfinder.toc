@@ -4,7 +4,7 @@
 ## Notes: Leveling guide for WoW: Forever. Based on RestedXP Guides (CC BY-NC-SA 4.0).
 ## Author: Wayfinder contributors
 ## Version: 0.1.0-dev
-## OptionalDeps: Questie, RXPGuides_Themes
+## OptionalDeps: Questie
 ## SavedVariables: RXPData, RXPDB, RXPSettings
 ## SavedVariablesPerCharacter: RXPCData, RXPCTrackingData, RXPCComms, RXPCSettings
 

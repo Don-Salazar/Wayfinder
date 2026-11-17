@@ -1491,6 +1491,12 @@ function addon:OnInitialize()
         profile = {guides = {}, reports = {splits = {}}}
     }
 
+    -- WF: clear leftovers of the removed guide import (its only writer): the cache key material and the
+    -- imported guides under each profile's "guides" table. Raw saved variables, before AceDB wraps them.
+    if type(RXPData) == "table" then RXPData.cache = nil end
+    if type(RXPDB) == "table" and type(RXPDB.profiles) == "table" then
+        for _, p in pairs(RXPDB.profiles) do if type(p) == "table" then p.guides = nil end end
+    end
     addon.db = LibStub("AceDB-3.0"):New("RXPDB", importGuidesDefault, 'global')
     RXPData = RXPData or {}
     RXPData.maxLoadTime = RXPData.maxLoadTime or 4000

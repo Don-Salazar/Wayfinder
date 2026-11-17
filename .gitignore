@@ -14,3 +14,5 @@ docs/ENV.md
 docs/reports/identifier-inventory.json
 # WF: research workbook and its conversions stay local (lists compiled from third-party sites)
 docs/research/
+# WF: built addon (npm run build:addon); never committed
+dist/

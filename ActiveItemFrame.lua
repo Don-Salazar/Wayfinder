@@ -162,15 +162,18 @@ local function UpdateCooldowns()
         local id = btn.itemId
         if id and btn:IsShown() then
             -- WF: pass-through only; the branches test the button kind and whether the API exists, never the
-            -- values. pcall contains a widget error (e.g. nil for an unknown id); its result is not inspected.
+            -- values. pcall contains a widget error (e.g. nil for an unknown id); only its success flag is read.
+            local shown = false
             if btn.spell then
                 if GetSpellCooldownDuration and btn.cooldown.SetCooldownFromDurationObject then
-                    pcall(btn.cooldown.SetCooldownFromDurationObject, btn.cooldown, GetSpellCooldownDuration(id))
+                    shown = pcall(btn.cooldown.SetCooldownFromDurationObject, btn.cooldown, GetSpellCooldownDuration(id))
                 end
             elseif GetItemCooldown then
                 local start, duration = GetItemCooldown(id)
-                pcall(btn.cooldown.SetCooldown, btn.cooldown, start, duration)
+                shown = pcall(btn.cooldown.SetCooldown, btn.cooldown, start, duration)
             end
+            -- WF: no display call was possible (API missing or the call failed): clear any stale swipe.
+            if not shown and btn.cooldown.Clear then btn.cooldown:Clear() end
             -- print(cd)
             --[[if cd ~= btn.cd then
                 btn.cd = cd

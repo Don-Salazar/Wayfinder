@@ -309,22 +309,7 @@ function addon.targeting:CheckNameplate(nameplateID)
         end
     end
 
-    if addon.settings.profile.scanForRares then
-        for _, name in ipairs(rareTargets) do
-            if name == unitName then
-                self:UpdateTargetFrame(nameplateID)
-
-                if addon.settings.profile.flashOnFind then FlashClientIcon() end
-
-                if addon.settings.profile.enableTargetingFlash then addon.tips:EnableDangerWarning(1) end
-
-                if addon.settings.profile.enableEnemyMarking then
-                    -- Steal moon, lowest of enemies for mark
-                    self:UpdateMarker("rare", nameplateID, 4)
-                end
-            end
-        end
-    end
+    -- WF: scanForRares branch removed; rareTargets is never filled since LoadRares went (B18 A1)
 end
 
 function addon.targeting:CheckNameplates()
@@ -389,22 +374,7 @@ function addon.targeting:UPDATE_MOUSEOVER_UNIT()
         end
     end
 
-    if addon.settings.profile.scanForRares then
-        for _, name in ipairs(rareTargets) do
-            if name == unitName then
-                self:UpdateTargetFrame(kind)
-
-                if addon.settings.profile.flashOnFind then FlashClientIcon() end
-
-                if addon.settings.profile.enableTargetingFlash then addon.tips:EnableDangerWarning(1) end
-
-                if addon.settings.profile.enableEnemyMarking then
-                    -- Steal moon, lowest of enemies for mark
-                    self:UpdateMarker("rare", kind, 4)
-                end
-            end
-        end
-    end
+    -- WF: scanForRares branch removed; rareTargets is never filled since LoadRares went (B18 A1)
 end
 
 function addon.targeting:PLAYER_TARGET_CHANGED()
@@ -443,22 +413,7 @@ function addon.targeting:PLAYER_TARGET_CHANGED()
         end
     end
 
-    if addon.settings.profile.scanForRares then
-        for _, name in ipairs(rareTargets) do
-            if name == unitName then
-                self:UpdateTargetFrame(kind)
-
-                if addon.settings.profile.flashOnFind then FlashClientIcon() end
-
-                if addon.settings.profile.enableTargetingFlash then addon.tips:EnableDangerWarning(1) end
-
-                if addon.settings.profile.enableEnemyMarking then
-                    -- Steal moon, lowest of enemies for mark
-                    self:UpdateMarker("rare", kind, 4)
-                end
-            end
-        end
-    end
+    -- WF: scanForRares branch removed; rareTargets is never filled since LoadRares went (B18 A1)
 end
 
 function addon.targeting:GOSSIP_SHOW()

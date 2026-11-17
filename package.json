@@ -16,7 +16,9 @@
     "check:origins": "tsx tools/check-origins/index.ts",
     "build:toc": "tsx tools/build-toc/index.ts",
     "check:toc": "tsx tools/build-toc/index.ts --check",
-    "inventory:ids": "tsx tools/inventory-ids/index.ts"
+    "inventory:ids": "tsx tools/inventory-ids/index.ts",
+    "build:addon": "tsx tools/build-addon/index.ts",
+    "check:addon": "tsx tools/build-addon/index.ts --check-residue --check-lines"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

@@ -1,0 +1,76 @@
+{
+  "description": "Rename map for tools/build-addon. Applied to the copied Lua/XML/TOC text in dist/Wayfinder, never to the repo. Every replacement stays on its line (no rule may contain a newline), so in-game error line numbers match the repo. Layer 1 = 'identifiers' (+ 'calls', 'strings'), layer 2 = 'keepLiterals' and the guide-file scope, layer 3 = 'branding'. Regexes are JavaScript syntax; 'pattern' in identifier rules is anchored by the engine as described per section.",
+  "guideFiles": {
+    "globs": ["Guides/**/*.lua", "lang/Guides-*/**/*.lua"],
+    "reason": "Upstream guide files: their RegisterGuide long strings are guide TEXT and stay byte-identical. Only the two globals they use as code are renamed (owner approved rewriting RXPGuides.RegisterGuide( and RXP.enabledLocale by script).",
+    "renameGlobals": ["RXPGuides", "RXP"]
+  },
+  "verbatim": [
+    { "glob": "libs/**", "reason": "Bundled third-party libraries (Ace3, HereBeDragons, ...): never edited; library names must stay as their authors registered them." }
+  ],
+  "identifiers": {
+    "exact": [
+      { "id": "sv-RXPData", "from": "RXPData", "to": "WFData", "reason": "SavedVariable (account): must not share a name with RestedXP's, or both addons read and write one table." },
+      { "id": "sv-RXPDB", "from": "RXPDB", "to": "WFDB", "reason": "SavedVariable (account), AceDB:New(\"RXPDB\")." },
+      { "id": "sv-RXPSettings", "from": "RXPSettings", "to": "WFSettings", "reason": "SavedVariable (account), AceDB:New(\"RXPSettings\")." },
+      { "id": "sv-RXPCData", "from": "RXPCData", "to": "WFCData", "reason": "SavedVariablePerCharacter." },
+      { "id": "sv-RXPCTrackingData", "from": "RXPCTrackingData", "to": "WFCTrackingData", "reason": "SavedVariablePerCharacter, AceDB:New(\"RXPCTrackingData\")." },
+      { "id": "sv-RXPCComms", "from": "RXPCComms", "to": "WFCComms", "reason": "SavedVariablePerCharacter, AceDB:New(\"RXPCComms\")." },
+      { "id": "sv-RXPCSettings", "from": "RXPCSettings", "to": "WFCSettings", "reason": "SavedVariablePerCharacter." },
+      { "id": "global-RXPGuides", "from": "RXPGuides", "to": "WayfinderGuides", "reason": "Public global table (RegisterGuide entry point); RestedXP defines the same global." },
+      { "id": "global-RXP", "from": "RXP", "to": "WayfinderAddon", "reason": "Debug global set to the addon table (RXPGuides.lua); guide files read RXP.enabledLocale." },
+      { "id": "global-RXPOnInitialize", "from": "RXPOnInitialize", "to": "WayfinderOnInitialize", "reason": "Optional debug hook global." },
+      { "id": "global-RXPGuides_Themes", "from": "RXPGuides_Themes", "to": "WayfinderGuides_Themes", "reason": "Read of the RestedXP Themes companion addon's global. Wayfinder does not load its themes (dropped from OptionalDeps); the renamed read finds nil and returns early." },
+      { "id": "comm-RXPGComms", "from": "RXPGComms", "to": "WFGComms", "reason": "AceComm prefix: Wayfinder must not exchange messages with RestedXP clients." },
+      { "id": "comm-RXPLTComms", "from": "RXPLTComms", "to": "WFLTComms", "reason": "AceComm prefix (leveling tracker)." },
+      { "id": "macro-RXPTargeting", "from": "RXPTargeting", "to": "WFTargeting", "reason": "Macro name created by Targeting.lua; account/character macro names are shared with RestedXP." },
+      { "id": "macro-RXPFollow", "from": "RXPFollow", "to": "WFFollow", "reason": "Macro name created by Targeting.lua." }
+    ],
+    "prefix": [
+      { "id": "prefix-RXPGuidesV2_", "pattern": "^RXPGuidesV2_", "to": "WayfinderV2_", "reason": "Names built from the RXPGuidesV2_ prefix." },
+      { "id": "prefix-RXPV2", "pattern": "^RXPV2", "to": "WFV2", "reason": "AceGUI widget types, V2 frame and template names." },
+      { "id": "prefix-RXPG_", "pattern": "^RXPG_", "to": "WFG_", "reason": "Named frames (menus, arrow)." },
+      { "id": "prefix-RXP_", "pattern": "^RXP_", "to": "WF_", "reason": "AceEvent messages, StaticPopup keys, menu frames (guide colour keys are excluded by keepLiterals)." },
+      { "id": "prefix-RESTEDXP_", "pattern": "^RESTEDXP_", "to": "WAYFINDER_", "reason": "StaticPopup / window keys." },
+      { "id": "prefix-RXP", "pattern": "^RXP(?=[A-Z0-9])", "to": "WF", "reason": "Other addon-defined names: frames (RXPFrame, RXPItemFrame, RXPTargetFrame...), secure buttons (RXPTELEPORTTO), fields." },
+      { "id": "prefix-rxp", "pattern": "^rxp(?=[A-Z0-9_])", "to": "wf", "reason": "Lower-camel field and local names (frame.rxpShadow ...): internal, renamed so no RXP residue remains in code." }
+    ],
+    "infix": [
+      { "id": "infix-RXP", "pattern": "RXP", "to": "WF", "reason": "RXP inside a name: BINDING_HEADER_RXP..., $parentRXP..., RegisterRXPV2..., isRXP." },
+      { "id": "infix-Rxp", "pattern": "Rxp", "to": "Wf", "reason": "Mixed-case inside a name: isRxp." }
+    ]
+  },
+  "keepLiterals": [
+    { "pattern": "^RXP_(?:FRIENDLY|ENEMY|LOOT|WARN|PICK|BUY)_$", "reason": "Guide colour keys: guide text writes |cRXP_WARN_...|r and the engine looks the key up in addon.guideTextColors; both sides stay upstream-named." },
+    { "pattern": "^RXP_\\[A-Z\\]\\+_$", "reason": "Lua pattern that finds guide colour keys in guide text (map.lua, SettingsPanel.lua ReplaceColors)." },
+    { "pattern": "^RXPGuides$", "reason": "Group-name constant compared with guide.group (GuideWindow.lua createMenu); the only user-visible use (Baganator plugin label) is renamed first by the 'calls' rule." }
+  ],
+  "calls": [
+    { "id": "slash-rxp", "call": "RegisterChatCommand", "arg": 1, "from": "rxp", "to": "wf", "reason": "AceConsole slash command /rxp -> /wf (RestedXP registers /rxp)." },
+    { "id": "slash-rxpg", "call": "RegisterChatCommand", "arg": 1, "from": "rxpg", "to": "wfg", "reason": "Slash command /rxpg -> /wfg." },
+    { "id": "slash-rxpguides", "call": "RegisterChatCommand", "arg": 1, "from": "rxpguides", "to": "wayfinder", "reason": "Slash command /rxpguides -> /wayfinder." },
+    { "id": "baganator-label", "call": "RegisterJunkPlugin", "arg": 2, "from": "RXPGuides", "to": "Wayfinder", "reason": "Plugin label shown in Baganator's junk-plugin list." }
+  ],
+  "strings": [
+    { "id": "path-addon-folder", "pattern": "(interface(?:\\\\\\\\|\\\\|/)addons(?:\\\\\\\\|\\\\|/))rxpguides(?=\\\\|/)", "flags": "gi", "to": "$1Wayfinder", "reason": "Hard-coded Interface\\AddOns\\RXPGuides\\ texture paths: the addon folder is Wayfinder. Case-insensitive; the slash style of each occurrence is kept." },
+    { "id": "slash-help-rxpguides", "pattern": "/rxpguides(?![\\w-])", "flags": "g", "to": "/wayfinder", "reason": "Help text naming the slash command." },
+    { "id": "slash-help-rxpg", "pattern": "/rxpg(?![\\w-])", "flags": "g", "to": "/wfg", "reason": "Help text naming the slash command." },
+    { "id": "slash-help-rxp", "pattern": "/rxp(?![\\w-])", "flags": "g", "to": "/wf", "reason": "Help text naming the slash command (\"/rxp splits\", \"|cff909090/rxp|r\"); texture paths such as /Textures/rxp_logo are not matched." }
+  ],
+  "branding": {
+    "keep": [
+      { "pattern": "Forever|Speedrun|Survival|Preparation|Horde|Alliance|MoP|TBC|SRGCE|ADV|Masmorra|无限|准备指南|스피드런|호드|얼라이언스", "reason": "Names of RestedXP guide groups (and their translations): they credit RestedXP as author of the upstream guides and many are matched against the #group line of guide text, so they stay." },
+      { "pattern": "^RestedXP$", "reason": "Theme author credit (Themes.lua) and the group-prefix comparison groupOrContent:sub(1,8) == \"RestedXP\" (GuideLoader.lua)." },
+      { "pattern": "\\[AH\\]\\[lo\\]|^\\^RestedXP", "reason": "Lua patterns matching upstream guide group names (GuideLoader.lua)." },
+      { "pattern": "github\\.com/RestedXP", "reason": "Attribution line required by CC BY-NC-SA 4.0." }
+    ],
+    "rules": [
+      { "id": "brand-RestedXP-Guides", "pattern": "RestedXP Guides\\b", "flags": "g", "to": "Wayfinder", "reason": "Product name in UI text (window titles, welcome text)." },
+      { "id": "brand-RXP-Guides", "pattern": "\\bRXP Guides\\b", "flags": "g", "to": "Wayfinder", "reason": "Product name in UI text." },
+      { "id": "brand-RXPGuides-word", "pattern": "\\bRXPGuides\\b", "flags": "g", "to": "Wayfinder", "reason": "Product name in UI/error text (\"RXPGuides - Error trying to include guide\")." },
+      { "id": "brand-Rested-XP", "pattern": "\\bRested XP\\b", "flags": "g", "to": "Wayfinder", "reason": "Product name in UI text." },
+      { "id": "brand-RestedXP", "pattern": "RestedXP", "flags": "g", "to": "Wayfinder", "reason": "Product name in UI text (chat prefix \"RestedXP: \", Leveling Report, menus, feedback form, translations)." },
+      { "id": "brand-RXP-word", "pattern": "\\bRXP\\b", "flags": "g", "to": "Wayfinder", "reason": "Short product name in UI text (\"RXP users\", theme names \"RXP Blue\", \"RXP Beta\"); cRXP_ markup is not a word match." }
+    ]
+  }
+}

@@ -24,6 +24,9 @@ exclude_files = {
   ".tools/**",
   "node_modules/**",
   ".git/**",
+  -- Built addon (tools/build-addon): a renamed copy of files linted at their
+  -- source; CI syntax-checks it with luac -p (Lua 5.1) instead.
+  "dist/**",
   -- CI only: leafo/gh-actions-lua installs Lua into ".lua/" and
   -- leafo/gh-actions-luarocks installs LuaRocks (prefix, so also the rocks
   -- `luarocks install` adds: luacheck, busted and their deps) into

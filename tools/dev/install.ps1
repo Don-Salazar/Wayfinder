@@ -3,14 +3,18 @@
   Copy the Wayfinder addon into a WoW: Forever install for in-game testing.
 
 .DESCRIPTION
-  Copies only what ships: Wayfinder.toc and every file it loads, Bindings.xml,
-  LICENSE, NOTICE.md, the asset folders and bundled library licences, as
-  listed by `tools/build-toc --list-files` (configured in
-  tools/build-toc/config.json). Upstream's RXPGuides*.toc are never copied.
+  Builds the shipped addon first with tools/build-addon (the same checks as
+  `npm run check:addon`): dist\Wayfinder holds Wayfinder.toc and every file it
+  loads, Bindings.xml, LICENSE, NOTICE.md, the asset folders and bundled
+  library licences (tools/build-toc/config.json), with the rename map
+  tools/build-addon/rebrand.json applied so Wayfinder installs next to
+  RestedXP's RXPGuides without collisions. Then copies dist\Wayfinder.
+  Upstream's RXPGuides*.toc are never copied.
 
   Target: <WowRoot>\_forever_\Interface\AddOns\Wayfinder\
   - refuses to run if <WowRoot>\_forever_\Interface\AddOns does not exist;
-  - refuses to run if Wayfinder.toc is stale (run `npm run build:toc`);
+  - refuses to run if Wayfinder.toc is stale (run `npm run build:toc`), or if
+    the build, its residue check or its line-count check fails;
   - deletes the old Wayfinder folder first, and only that folder;
   - never touches any other addon folder (RXPGuides included).
 
@@ -63,13 +67,16 @@ if ($Target -notmatch '\\Interface\\AddOns\\Wayfinder$' -or (Split-Path -Leaf $T
     Fail "Refusing to use target '$Target': it must end in \Interface\AddOns\$AddonName." 3
 }
 
-# Ask the build tool what ships (and make sure Wayfinder.toc is current).
+# Make sure Wayfinder.toc is current, build dist\Wayfinder, and ask the build tool what ships.
+$Dist = Join-Path $Root 'dist\Wayfinder'
 Push-Location $Root
 try {
     $tsx = Join-Path $Root 'node_modules\tsx\dist\cli.mjs'
     if (-not (Test-Path -LiteralPath $tsx)) { Fail 'tsx not installed; run "npm ci" in the repo first.' 2 }
     & node $tsx 'tools/build-toc/index.ts' --check
     if ($LASTEXITCODE -ne 0) { Fail 'Wayfinder.toc is stale; run "npm run build:toc" first.' 4 }
+    & node $tsx 'tools/build-addon/index.ts' --check-residue --check-lines
+    if ($LASTEXITCODE -ne 0) { Fail 'build-addon failed (see above); nothing was installed.' 4 }
     $files = @(& node $tsx 'tools/build-toc/index.ts' --list-files)
     if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) { Fail 'build-toc --list-files failed.' 4 }
 }
@@ -82,8 +89,8 @@ foreach ($f in $files) {
     if ($f -match '(^|[\\/])\.\.([\\/]|$)' -or [System.IO.Path]::IsPathRooted($f)) {
         Fail "Refusing suspicious path from the file list: '$f'" 4
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $Root $f) -PathType Leaf)) {
-        Fail "Listed file is missing in the repo: '$f'" 4
+    if (-not (Test-Path -LiteralPath (Join-Path $Dist $f) -PathType Leaf)) {
+        Fail "Listed file is missing in the build output ${Dist}: '$f'" 4
     }
 }
 
@@ -99,7 +106,7 @@ foreach ($f in $files) {
     $dest = Join-Path $Target $rel
     $destDir = Split-Path -Parent $dest
     if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-    Copy-Item -LiteralPath (Join-Path $Root $rel) -Destination $dest -Force
+    Copy-Item -LiteralPath (Join-Path $Dist $rel) -Destination $dest -Force
     $top = if ($rel.Contains('\')) { $rel.Split('\')[0] } else { '(root)' }
     if ($counts.ContainsKey($top)) { $counts[$top]++ } else { $counts[$top] = 1 }
 }

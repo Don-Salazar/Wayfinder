@@ -187,8 +187,7 @@ local settingsDBDefaults = {
         --- UnitScan
         enableTargetFrame = true,
         -- WF: showTargetingOnProximity, soundOnFind, soundOnFindChannel and notifyOnRares removed with the
-        -- TargetUnit() proximity scan, their only user (B18 A1)
-        scanForRares = true,
+        -- TargetUnit() proximity scan, their only user (B18 A1); WF: scanForRares too (its branches read an always-empty list)
         activeTargetScale = 1,
 
         enableAddonIncompatibilityCheck = true,
@@ -583,6 +582,9 @@ function addon.settings:CreateAceOptionsPanel()
         args = {
             -- WF: removed the "Join Discord" button (RestedXP Discord link; no outbound links, B18 E1)
             -- WF: removed the "Import Guides" button (guide importer removed)
+            -- WF: attribution required by CC BY-NC-SA 4.0 (text only, no link)
+            wfCredits = {order = 1.0, type = "description", width = "full",
+                name = "Based on RestedXP Guides (github.com/RestedXP/RXPGuides), CC BY-NC-SA 4.0"},
             feedbackButton = {
                 order = 1.1,
                 name = L("Open Feedback Form"),
@@ -1754,18 +1756,7 @@ function addon.settings:CreateAceOptionsPanel()
                             return not self.profile.enableTargetFrame
                         end,
                     },
-                    scanForRares = {
-                        name = L("Scan for Nearby Rares"), -- TODO locale
-                        desc = L("Checks for nearby rare spawns"),
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 3.20,
-                        disabled = function()
-                            return not self.profile.enableTargetAutomation -- WF: proximity term removed (B18 A1)
-                        end,
-                        hidden = not unitscanEnabled
-                    },
-                    -- WF: notifyOnRares option removed; its only reader was the proximity scan (B18 A1)
+                    -- WF: notifyOnRares and scanForRares options removed; their only reader was the proximity scan (B18 A1)
                     hideActiveTargetsBackground = {
                         name = L("Hide Targets Background"),
                         desc = L("Make background transparent"),
