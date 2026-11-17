@@ -69,3 +69,44 @@ Send back: the Result column, the full text of any error, and say when you
 have reloaded. Claude Code then reads
 `_forever_\WTF\Account\<account>\SavedVariables\Wayfinder.lua` and the
 BugGrabber log.
+
+## T2 — self-test, data dump and field log (P2 gate, about 20 minutes)
+
+Gate: `/wf selftest` and `/wf dump` run, and after a reload Claude Code can
+read the results from SavedVariables. Run T1 first; T2 uses the same
+install. To include the research item and spell IDs in the dump, install
+with:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\dev\install.ps1 -DevSeeds
+```
+
+On the Troll Warrior, out of combat, standing still in the open world:
+
+| # | Do | Expect | Result |
+|---|---|---|---|
+| 1 | Type `/wf modules` | A list: `selftest`, `dump`, `fieldlog`, each on (development build) | |
+| 2 | Open options, find "Wayfinder modules" | A page with an on/off toggle per module. Note whether it sits under Wayfinder or as its own entry | |
+| 3 | Type `/wf selftest` | A summary line within a few seconds: "N passed, M failed, K missing". Write down the three numbers | |
+| 4 | Open the macro window | No macro named `WFSelfTest` is left behind | |
+| 5 | Type `/wf dump` | Progress lines, then "dump complete … /reload to save". No freeze. Note the time it took | |
+| 6 | Open your quest log | The quest you had selected is still selected | |
+| 7 | Visit the Warrior trainer and open the training window with all filters ticked | No error. If a chat line asks you to tick filters, tick them and reopen | |
+| 8 | Walk across a zone or subzone border | No error (the map table is recorded silently) | |
+| 9 | Accept one quest and turn one in | No error | |
+| 10 | Type `/wf note test note from T2` | A confirmation with an event number | |
+| 11 | Type `/wf log status` | An event count above zero | |
+| 12 | Type `/reload` | No Lua error | |
+
+Optional, for race base stats: repeat row 5 with all gear removed.
+
+Send back: the Result column, any error text, and say when you have
+reloaded. Claude Code then runs `npm run savedvars`, `npm run dump:research`
+and `npm run analyze:log` on
+`_forever_\WTF\Account\<account>\SavedVariables\Wayfinder.lua` and the
+per-character file under `<account>\<realm>\<character>\SavedVariables\`,
+and writes the results to `docs/research/selftest-<date>.md`.
+
+What the three modules never do: read health, auras, cooldowns or enemy
+data; send anything anywhere; store your character name or realm (unless
+you turn that option on).

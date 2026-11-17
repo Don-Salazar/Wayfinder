@@ -115,6 +115,25 @@ agent, CI green. Untested in client; test card T1 is in `docs/TEST_CARDS.md`.
 | E6 | Unloaded upstream files that still contain removed features (other-game TOCs, `UI/V2/GuideImporter.lua`, `HSBatching.lua`, the dropped libraries) remain in the repo so upstream syncs stay simple. They are not copied into the built addon | Don | Accept, or delete them and take the merge cost |
 | E7 | Local `luacheck` and `busted` cannot run on Don's PC (`lua.exe` and Python deleted, see D3.3). All Lua linting and tests run only in GitHub CI | Don | Fix the PC as in D3.3 |
 
+## F. Raised during P2 (2026-11-17)
+
+P2 state: `Modules/Core.lua` (module toggles, `/wf` subcommands),
+`Modules/SelfTest.lua` (`/wf selftest`), `Modules/DataDump.lua`
+(`/wf dump`), `Modules/FieldLog.lua` (`/wf note`, `/wf log`) and the
+tools `read-savedvars`, `dump-to-research`, `dump-seeds`, `analyze-log`
+are built, each reviewed by a second agent. Untested in client; test card T2
+is in `docs/TEST_CARDS.md`. The P2 gate needs Don's run.
+
+| # | Question | Owner | Plan |
+|---|---|---|---|
+| F1 | Which API paths exist on Forever: `C_SpellBook` or the old spellbook globals, the Classic talent globals, the trainer service functions, `C_TooltipInfo` line shape | selftest and dump (T2) | Each dump section records the path it used or "missing" |
+| F2 | Which values come back secret (XP, positions, power costs, stats) | selftest (T2) | Stored as the text "secret"; never read |
+| F3 | The dump does not read quest reward XP or money, spell learn level, base cooldown or talent tooltips, because no function for them is referenced in the repo | CC, after T2 | Quest XP comes from field-log turn-in events. Add the others once the self-test shows which functions exist |
+| F4 | The field log cannot hash guide text (the engine does not keep it) and does not hook BugGrabber (its interface is not in the repo) | CC | Guide name, group and version are logged instead. Revisit BugGrabber if Don uses it |
+| F5 | Auto-accepted quests will usually log no quest giver, because the giver is recorded only while a quest or gossip window is open | recording (P3) | Acceptable for now; the recorder in P4 captures givers another way |
+| F6 | Header-comment format for our guides and the "no inline `--` notes" rule were chosen by the linter's author | Don | Approve or change (`tools/lint-guides/rules.ts`) |
+| F7 | `Horde-01-12_Durotar.lua:36` has a malformed coordinate (`-623.92.00`); 13 dead `#next` links and 40 never-loading guides exist upstream | CC (P3) | Recorded in the linter baseline. Fix in our guide layer, or report upstream |
+
 ## Closed
 
 | # | Question | Answer | Evidence | Date |
