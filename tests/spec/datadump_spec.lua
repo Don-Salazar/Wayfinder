@@ -48,8 +48,8 @@ local function full_api(world)
     UnitFactionGroup = function() return "Faction", "Faction" end,
     UnitStat = function(_, index) return 20 + index, 22 + index, 2, 0 end,
     UnitArmor = function() return 50, 60 end,
-    UnitHealthMax = function() return 100 end,
-    UnitPowerMax = function() return 100 end,
+    UnitHealthMax = function() world.forbidden = "UnitHealthMax" end,
+    UnitPowerMax = function() world.forbidden = "UnitPowerMax" end,
     UnitGUID = function(unit) if unit == "npc" then return GUID end end,
     UnitPosition = function() return 1, 2, 0, 0 end,
     GetInstanceInfo = function() return "World", "none", 0, "", 0, 0, false, 0 end,
@@ -101,7 +101,8 @@ local function full_api(world)
       GetQuestObjectives = function()
         return { { text = "0/8 Things", type = "monster", numRequired = 8, numFulfilled = 0, finished = false } }
       end,
-      SetSelectedQuest = function() end,
+      GetSelectedQuest = function() return world.selected end,
+      SetSelectedQuest = function(id) world.selected = id; world.selections = world.selections + 1 end,
     },
     GetNumQuestLogChoices = function() return 1 end,
     GetQuestLogChoiceInfo = function() return "Choice", "tex", 1, 2, true end,
@@ -131,7 +132,8 @@ local function full_api(world)
 end
 
 local function new_world()
-  return { map = 10, zone = "Zone", subzone = "Sub", filters = { available = 1, unavailable = 1, used = 1 } }
+  return { map = 10, zone = "Zone", subzone = "Sub", filters = { available = 1, unavailable = 1, used = 1 },
+    selected = 777, selections = 0 }
 end
 
 -- Is `value` plain data? Returns false and a path on failure.
@@ -294,10 +296,13 @@ describe("Modules/DataDump.lua", function()
     local bag = by(dump.items, "source", "bag")
     assert.are.same({ 0, 2, 102, 3 }, { bag.bag, bag.slot, bag.itemID, bag.count })
 
-    -- stats: base and effective, equipment occupancy
-    assert.are.same({ index = 1, base = 21, effective = 23 }, dump.stats.primary[1])
-    assert.are.same({ base = 50, effective = 60 }, dump.stats.armor)
-    assert.are.equal(100, dump.stats.healthMax)
+    -- stats: base values only (no effective values, no health or power), equipment occupancy
+    assert.are.same({ index = 1, base = 21 }, dump.stats.primary[1])
+    assert.are.same({ base = 50 }, dump.stats.armor)
+    assert.is_nil(dump.stats.healthMax)
+    assert.is_nil(dump.stats.powerMax)
+    assert.is_nil(world.forbidden)
+    assert.are.equal(777, world.selected) -- quest log selection restored
     assert.are.same({ 16 }, dump.stats.equippedSlots)
     assert.is_false(dump.stats.naked)
 
@@ -358,7 +363,6 @@ describe("Modules/DataDump.lua", function()
     api.issecretvalue = function(v) return rawequal(v, SECRET) end
     api.C_Spell.GetSpellPowerCost = function() return { { type = 1, name = "RAGE", cost = SECRET } } end
     api.C_TooltipInfo.GetSpellByID = function() return { lines = { { leftText = SECRET } } } end
-    api.UnitHealthMax = function() return SECRET end
     api.UnitStat = function() return SECRET, SECRET end
     api.GetZoneText = function() return SECRET end
     api.C_Item.GetItemStats = function() return SECRET end
@@ -367,7 +371,6 @@ describe("Modules/DataDump.lua", function()
     local a = by(dump.spells, "id", 11)
     assert.are.equal("secret", a.costs[1].cost)
     assert.are.equal("secret", a.tooltip[1].l)
-    assert.are.equal("secret", dump.stats.healthMax)
     assert.are.equal("secret", dump.stats.primary[1].base)
     assert.are.equal("secret", dump.maps[1].zoneText)
     assert.are.equal("secret", by(dump.items, "source", "equipped").stats)
@@ -381,6 +384,14 @@ describe("Modules/DataDump.lua", function()
     local parse = WF.DataDump.ParseCreatureId
     assert.are.equal(4242, parse(GUID))
     assert.are.equal(77, parse("Vehicle-0-1-2-3-77-00FF"))
+    -- obfuscated server, instance, zone and spawn segments (Forever)
+    assert.are.equal(4242, parse("Creature-0-Ab9_x-zZ:q-?!-4242-xyz.QQ"))
+    assert.are.equal(9, parse("Vehicle-0-##-@@-%%-9-~~"))
+    assert.is_nil(parse("Creature-0-a-b-c-notnum-d"))
+    assert.is_nil(parse("GameObject-0-1-2-3-4242-00FF"))
+    assert.is_nil(parse("Creature-0-1-2-3-4242"))
+    assert.is_nil(parse("Creature-0-1-2-3-4242-00FF-extra"))
+    assert.is_nil(parse("Creature-0--2-3-4242-00FF"))
     assert.is_nil(parse("Player-1234-0ABCDEF0"))
     assert.is_nil(parse("Creature-0-1-2-3-x-00FF"))
     assert.is_nil(parse(nil))
@@ -520,5 +531,194 @@ describe("Modules/DataDump.lua", function()
     run()
     local added = loader.new_globals(before, loader.global_keys())
     assert.are.same({ "WayfinderCharData", "WayfinderData" }, added)
+  end)
+
+  -- Review fixes ------------------------------------------------------------
+
+  local function saved() return rawget(_G, "WayfinderData").dump end
+
+  it("never clears saved trainer records when trainer APIs are missing or the cap is hit", function()
+    start()
+    wow.fire_event("TRAINER_SHOW")
+    drain()
+    local kept = saved().trainer["4242"]
+    assert.is_table(kept)
+    rawset(_G, "GetTrainerServiceInfo", nil)
+    assert.is_true(WF:HandleSlash("dump trainer"))
+    drain()
+    assert.are.equal("missing", saved().meta.sections.trainer.status)
+    assert.are.equal(kept, saved().trainer["4242"])
+    -- cap: 100 records already saved, a new trainer is refused, nothing is lost
+    wow.uninstall()
+    start({ UnitGUID = function() return "Creature-0-1-2-3-5555-00FF" end })
+    WF:HandleSlash("dump maps")
+    for i = 1, 100 do saved().trainer["x" .. i] = { npcId = i } end
+    wow.fire_event("TRAINER_SHOW")
+    drain()
+    assert.are.equal("capped", saved().meta.sections.trainer.status)
+    assert.is_nil(saved().trainer["5555"])
+    assert.is_table(saved().trainer.x100)
+  end)
+
+  it("keeps a complete trainer record when a later visit is cut short or lists fewer services", function()
+    local services = 2
+    start({ GetNumTrainerServices = function() return services end })
+    wow.fire_event("TRAINER_SHOW")
+    drain()
+    local complete = saved().trainer["4242"]
+    assert.is_true(complete.complete)
+    assert.are.equal(2, #complete.services)
+    -- closed after one service: nothing replaces the complete record
+    wow.set_profile_step(10)
+    wow.fire_event("TRAINER_SHOW")
+    wow.next_frame()
+    wow.fire_event("TRAINER_CLOSED")
+    assert.is_false(WF.DataDump.IsTrainerRunning())
+    assert.are.equal(complete, saved().trainer["4242"])
+    -- a finished visit with fewer services keeps the earlier complete record
+    wow.set_profile_step(0)
+    services = 1
+    wow.fire_event("TRAINER_SHOW")
+    for _ = 1, 5 do wow.next_frame() end
+    assert.is_false(WF.DataDump.IsTrainerRunning())
+    assert.are.equal(complete, saved().trainer["4242"])
+    -- an incomplete earlier record is replaced
+    complete.complete = false
+    wow.fire_event("TRAINER_SHOW")
+    for _ = 1, 5 do wow.next_frame() end
+    assert.are.equal(1, #saved().trainer["4242"].services)
+  end)
+
+  it("saves nothing under a shared key when the creature ID cannot be read", function()
+    start({ UnitGUID = function() return "Player-1-0ABC" end })
+    wow.fire_event("TRAINER_SHOW")
+    for _ = 1, 5 do wow.next_frame() end
+    assert.is_true(wow.chat_contains("could not read this trainer's creature ID"))
+    assert.are.same({}, saved().trainer)
+  end)
+
+  it("restores the quest log selection when a run is cancelled", function()
+    start()
+    wow.set_profile_step(10)
+    assert.is_true(WF:HandleSlash("dump quests"))
+    wow.next_frame() -- header row
+    wow.next_frame() -- quest row: selected to read its rewards
+    assert.are.equal(501, world.selected)
+    WF:SetEnabled("dump", false)
+    assert.are.equal(777, world.selected)
+  end)
+
+  it("restores the quest log selection when a run ends in an error", function()
+    start()
+    local runChunked = WF.RunChunked
+    WF.RunChunked = function(self, steps, onDone, budget, id)
+      return runChunked(self, steps, function(_, handle) onDone("error", handle) end, budget, id)
+    end
+    assert.is_true(WF:HandleSlash("dump quests"))
+    drain()
+    assert.are.equal(777, world.selected)
+    assert.is_true(world.selections >= 2)
+    assert.is_true(wow.chat_contains("stopped early (error)"))
+  end)
+
+  it("never changes the quest log selection when it cannot be read", function()
+    start()
+    rawget(_G, "C_QuestLog").GetSelectedQuest = nil
+    local dump = run("dump quests")
+    assert.are.equal(0, world.selections)
+    assert.is_true(dump.quests[1].rewardsUnavailable)
+    assert.is_nil(dump.quests[1].rewards)
+    assert.truthy(dump.meta.sections.quests.rewardPath:find("unavailable", 1, true))
+  end)
+
+  it("resets meta.complete when a dump starts and sets it only when a full dump is done", function()
+    start()
+    run()
+    assert.is_true(saved().meta.complete)
+    wow.set_profile_step(10)
+    assert.is_true(WF:HandleSlash("dump"))
+    assert.is_false(saved().meta.complete)
+    WF:SetEnabled("dump", false)
+    assert.is_false(saved().meta.complete)
+  end)
+
+  it("keeps the main dump header when only a trainer or zone is recorded", function()
+    start()
+    run()
+    local level = saved().meta.level
+    saved().meta.time = "kept"
+    wow.fire_event("TRAINER_SHOW")
+    drain()
+    wow.fire_event("ZONE_CHANGED")
+    assert.are.equal("kept", saved().meta.time)
+    assert.are.equal(level, saved().meta.level)
+    assert.is_string(saved().meta.sections.trainer.time)
+  end)
+
+  it("applies the section caps to seeded spells and items", function()
+    start()
+    WF.DataDump.caps.spells = 4
+    WF.DataDump.caps.items = 3
+    WF.dumpSeeds = { items = { 101, 102, 103, 104 }, spells = { 77, 78, 79 } }
+    local dump = run()
+    assert.are.equal(4, #dump.spells)
+    assert.is_true(dump.meta.sections.spells.capped)
+    assert.are.equal(3, #dump.items)
+    assert.is_true(dump.meta.sections.items.capped)
+  end)
+
+  it("drops tooltip lines that can name another player, in both tooltip paths", function()
+    local fakeTip = {}
+    local function fontString(text, justify)
+      return {
+        IsObjectType = function(_, kind) return kind == "FontString" end,
+        GetText = function() return text end,
+        GetJustifyH = function() return justify end,
+      }
+    end
+    function fakeTip.SetOwner() end
+    function fakeTip.ClearLines() end
+    function fakeTip.Hide() end
+    function fakeTip.SetHyperlink(_, hyperlink) fakeTip.link = hyperlink end
+    function fakeTip.GetRegions()
+      if fakeTip.link ~= "spell:11" then return end
+      return fontString("Spell A", "LEFT"), fontString("Rank 1", "RIGHT"),
+        fontString("<Made by Zzcrafter>", "LEFT"), fontString("10 Rage", "LEFT")
+    end
+    world = new_world()
+    local api = full_api(world)
+    -- C_TooltipInfo exists but gives nothing for spells: the scanning tooltip is used.
+    api.C_TooltipInfo.GetSpellByID = function() return nil end
+    api.C_TooltipInfo.GetBagItem = function()
+      return { lines = { { leftText = "Item B" }, { leftText = "<Made by Zzcrafter>" },
+        { leftText = "Use:", rightText = "<Gift from Zzother>" } } }
+    end
+    start(api)
+    local createFrame = CreateFrame
+    rawset(_G, "CreateFrame", function(kind, ...)
+      if kind == "GameTooltip" then return fakeTip end
+      return createFrame(kind, ...)
+    end)
+    local dump = run()
+    local spell = by(dump.spells, "id", 11)
+    assert.are.equal("scanTooltip", spell.tooltipPath)
+    assert.are.same({ { l = "Spell A", r = "Rank 1" }, { l = "10 Rage" } }, spell.tooltip)
+    assert.is_true(dump.meta.sections.spells.droppedTooltipLines >= 1)
+    local bag = by(dump.items, "source", "bag")
+    assert.are.same({ { l = "Item B" } }, bag.tooltip)
+    assert.are.equal(2, dump.meta.sections.items.droppedTooltipLines)
+    local text = all_text(dump)
+    assert.is_nil(text:find("Zzcrafter", 1, true))
+    assert.is_nil(text:find("Zzother", 1, true))
+  end)
+
+  it("cuts long strings on a UTF-8 character boundary", function()
+    world = new_world()
+    local api = full_api(world)
+    local long = ("a"):rep(499) .. "\195\169" .. "tail" -- the two-byte character straddles byte 500
+    api.C_TooltipInfo.GetSpellByID = function() return { lines = { { leftText = long } } } end
+    start(api)
+    local dump = run()
+    assert.are.equal(("a"):rep(499), by(dump.spells, "id", 11).tooltip[1].l)
   end)
 end)

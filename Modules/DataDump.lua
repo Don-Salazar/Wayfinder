@@ -12,21 +12,26 @@
 -- While the module is on it also records, from events only:
 --   * maps: one row per (UiMapID, zone text, subzone text) on zone changes;
 --   * trainer: every service listed in an open trainer window (TRAINER_SHOW).
--- Rules this file keeps (CLAUDE.md):
+-- Rules this file keeps (CLAUDE.md; owner's rule "no health, no aura effects"):
 --   * Static data only: spell costs, tooltips, item stats, trainer lists,
---     talent layout, quest log, base stats. Nothing about auras, cooldown
---     state, current health, enemies or combat is read.
+--     talent layout, quest log, BASE stats. Nothing about health, auras or
+--     aura-modified values, cooldown state, enemies or combat is read.
 --   * Every value the client may mark "secret" passes the issecretvalue check
 --     (when the client has it) before anything else touches it, and is stored
 --     as the string "secret". Secret values are never compared, computed on,
---     concatenated, formatted, used as keys or tested.
+--     concatenated, formatted, used as keys or tested. Where a link or a flag
+--     is expected, "secret" counts as no value.
 --   * Every API is looked up by name at run time and called under pcall; a
 --     missing API gives the section status "missing", never an error.
 --   * No game data in this file: every ID and name comes from the client.
 --     Optional development seeds (addon.WF.dumpSeeds, written into dist/ by
 --     tools/dump-seeds, never committed) only say which extra IDs to read.
---   * No character name, realm or guild is read. Class, race, level and
---     faction tokens are recorded.
+--   * Privacy: no character name, realm or guild is read; tooltip lines wholly
+--     in angle brackets ("<Made by ...>") can name another player and are
+--     dropped (counted per section). Class, race, level and faction tokens are
+--     recorded.
+--   * The player's quest log selection is changed only when it can be read
+--     first, and is restored however the run ends.
 --   * Off: no frames, no events. On and idle: one frame registered for the
 --     zone and trainer events only. Work runs across frames (WF:RunChunked).
 -- Licence: CC BY-NC-SA 4.0, Wayfinder contributors
@@ -57,7 +62,6 @@ local MAX_QUESTS = 60
 local MAX_OBJECTIVES = 20
 local MAX_REWARDS = 10
 local MAX_COSTS = 10
-local MAX_ITEMS = 400
 local MAX_TRAINER_SERVICES = 400
 local MAX_TRAINER_RECORDS = 100
 local MAX_MAP_ROWS = 2000
@@ -70,15 +74,21 @@ local PRIMARY_STATS = 5
 local TRAINER_FILTERS = { "available", "unavailable", "used" }
 local ZONE_EVENTS = { "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "PLAYER_ENTERING_WORLD" }
 local SECTIONS = { "stats", "spells", "racials", "talents", "quests", "items", "trainer", "maps" }
+-- Sections that build up across runs: never cleared by a dump.
+local ACCUMULATING = { trainer = true, maps = true }
 
 local DataDump = {}
 WF.DataDump = DataDump
+
+-- Entry caps per section (spellbook plus seeds; equipped, bags plus seeds).
+-- A table so specs can lower them.
+DataDump.caps = { spells = 2500, items = 600 }
 
 local frame -- event frame, created on first enable
 local jobs = {} -- slot ("main" or "trainer") -> running job
 local mapIndex -- key -> maps row, rebuilt from saved rows on first use
 local trainerOpen = false
-local scanner -- hidden scanning tooltip, created only if C_TooltipInfo is missing
+local scanner -- hidden scanning tooltip, created only when C_TooltipInfo gives nothing
 
 -- ---------------------------------------------------------------------------
 -- Helpers (the same secret-safe pattern as Modules/SelfTest.lua)
@@ -104,13 +114,29 @@ local function isSecret(value)
     return ok and secret == true
 end
 
+local function pack(...)
+    return { n = select("#", ...), ... }
+end
+
+-- Cut a string to at most max bytes without splitting a UTF-8 character.
+local function utf8Cut(text, max)
+    if #text <= max then return text end
+    local cut = max
+    while cut > 0 do
+        local nextByte = text:byte(cut + 1)
+        if not nextByte or nextByte < 0x80 or nextByte > 0xBF then break end
+        cut = cut - 1
+    end
+    return text:sub(1, cut)
+end
+
 -- A scalar as plain data: "secret", a capped string, a finite number, a
 -- boolean, or nil (tables, functions and userdata become nil).
 local function scalar(value)
     if isSecret(value) then return "secret" end
     local kind = type(value)
     if kind == "string" then
-        return #value > MAX_STRING and value:sub(1, MAX_STRING) or value
+        return utf8Cut(value, MAX_STRING)
     elseif kind == "number" then
         if value ~= value or value == math.huge or value == -math.huge then return tostring(value) end
         return value
@@ -118,6 +144,13 @@ local function scalar(value)
         return value
     end
     return nil
+end
+
+-- Like scalar, but "secret" counts as no value (for links and flags).
+local function known(value)
+    local v = scalar(value)
+    if v == "secret" then return nil end
+    return v
 end
 
 -- Any value as plain data (tables copied with capped size and depth).
@@ -133,9 +166,10 @@ local function plain(value, depth)
             out["<truncated>"] = true
             break
         end
-        local keyType = type(key)
-        local plainKey = (keyType == "string" or keyType == "number") and not isSecret(key) and key or nil
-        if plainKey ~= nil then out[plainKey] = plain(entry, depth + 1) end
+        if not isSecret(key) then
+            local keyType = type(key)
+            if keyType == "string" or keyType == "number" then out[key] = plain(entry, depth + 1) end
+        end
     end
     return out
 end
@@ -148,13 +182,18 @@ local function call(path, ...)
     return pcall(fn, ...)
 end
 
--- The returns of a call as a plain array (for shapes that vary by client).
-local function rawReturns(...)
+-- call() with every return packed: { n = count, ok, results... }.
+local function callPacked(path, ...)
+    return pack(call(path, ...))
+end
+
+-- Returns from..t.n of a packed table as a plain array (shapes vary by client).
+local function rawReturns(t, from)
     local out = {}
-    local n = math.min(select("#", ...), MAX_RAW_RETURNS)
-    for i = 1, n do
-        local value = scalar((select(i, ...)))
-        out[i] = value == nil and "nil" or value
+    local last = math.min(t.n, from + MAX_RAW_RETURNS - 1)
+    for i = from, last do
+        local value = scalar(t[i])
+        out[#out + 1] = value == nil and "nil" or value
     end
     return out
 end
@@ -163,6 +202,14 @@ local function first(path, ...)
     local ok, value = call(path, ...)
     if not ok then return nil end
     return scalar(value)
+end
+
+-- A link-like string result, or nil (also for "secret").
+local function firstLink(path, ...)
+    local ok, value = call(path, ...)
+    if not ok then return nil end
+    value = known(value)
+    return type(value) == "string" and value or nil
 end
 
 local function now()
@@ -192,17 +239,43 @@ local function linkName(link)
 end
 
 --- Creature ID from a unit GUID "Creature-0-<server>-<instance>-<zone>-<ID>-<spawn>"
---- (also Vehicle-...). Only the ID segment is returned; server and spawn
---- segments are never kept. Returns nil for anything else.
+--- (also Vehicle-...). The other segments are obfuscated on Forever and may be
+--- any text; only the sixth field is read and returned. Nil for anything else.
 function DataDump.ParseCreatureId(guid)
-    if type(guid) ~= "string" or isSecret(guid) then return nil end
-    local unitType, id = guid:match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
-    if unitType ~= "Creature" and unitType ~= "Vehicle" then return nil end
-    return tonumber(id)
+    if isSecret(guid) or type(guid) ~= "string" then return nil end
+    local fields, count = {}, 0
+    for part in (guid .. "-"):gmatch("([^-]*)-") do
+        count = count + 1
+        if count > 7 then return nil end
+        if part == "" then return nil end
+        fields[count] = part
+    end
+    if count ~= 7 then return nil end
+    if fields[1] ~= "Creature" and fields[1] ~= "Vehicle" then return nil end
+    if not fields[6]:find("^%d+$") then return nil end
+    return tonumber(fields[6])
 end
 
 -- ---------------------------------------------------------------------------
 -- Tooltips
+
+-- A line wholly in angle brackets ("<Made by Name>", "<Gift from Name>") can
+-- name another player.
+local function namesSomeone(text)
+    return type(text) == "string" and text:find("^<.+>$") ~= nil
+end
+
+local function dropPrivate(lines)
+    local kept, dropped = {}, 0
+    for _, line in ipairs(lines) do
+        if namesSomeone(line.l) or namesSomeone(line.r) then
+            dropped = dropped + 1
+        else
+            kept[#kept + 1] = line
+        end
+    end
+    return kept, dropped
+end
 
 local function tooltipFromData(data)
     if isSecret(data) or type(data) ~= "table" then return nil end
@@ -218,10 +291,11 @@ local function tooltipFromData(data)
         if not isSecret(line) and type(line) == "table" then
             left, right = scalar(line.leftText), scalar(line.rightText)
             -- Older tooltip data keeps the text in line.args.
-            if left == nil and not isSecret(line.args) and type(line.args) == "table" then
-                for _, arg in ipairs(line.args) do
+            local args = line.args
+            if left == nil and not isSecret(args) and type(args) == "table" then
+                for _, arg in ipairs(args) do
                     if not isSecret(arg) and type(arg) == "table" then
-                        local field = scalar(arg.field)
+                        local field = known(arg.field)
                         if field == "leftText" then left = scalar(arg.stringVal) end
                         if field == "rightText" then right = scalar(arg.stringVal) end
                     end
@@ -233,8 +307,20 @@ local function tooltipFromData(data)
     return out, capped
 end
 
+local function regionText(region)
+    local okType, isText = pcall(function() return region:IsObjectType("FontString") end)
+    if not (okType and isText) then return nil end
+    local okText, text = pcall(function() return region:GetText() end)
+    if not okText then return nil end
+    text = scalar(text)
+    if text == nil or text == "" then return nil end
+    local okJustify, justify = pcall(function() return region:GetJustifyH() end)
+    return text, okJustify and known(justify) == "RIGHT"
+end
+
 -- Upstream's way (ItemUpgrades.lua): a hidden GameTooltip, SetHyperlink, then
--- read the font strings. Used only when C_TooltipInfo is missing.
+-- read the font strings. A right-justified font string is the right text of
+-- the line before it.
 local function scanTooltip(link)
     if type(link) ~= "string" then return nil end
     if not scanner then
@@ -252,44 +338,49 @@ local function scanTooltip(link)
     if not ok or type(regions) ~= "table" then return nil end
     local out, capped = {}, nil
     for _, region in ipairs(regions) do
-        local typeOk, isText = pcall(function() return region:IsObjectType("FontString") end)
-        local textOk, rawText = false, nil
-        if typeOk and isText then textOk, rawText = pcall(function() return region:GetText() end) end
-        if textOk then
-            local text = scalar(rawText)
-            if text ~= nil and text ~= "" then
-                if #out >= MAX_TOOLTIP_LINES then
-                    capped = true
-                    break
-                end
+        local text, isRight = regionText(region)
+        if text then
+            local last = out[#out]
+            if isRight and last and last.r == nil then
+                last.r = text
+            elseif #out >= MAX_TOOLTIP_LINES then
+                capped = true
+                break
+            else
                 out[#out + 1] = { l = text }
             end
         end
     end
-    pcall(tip.Hide, tip)
+    pcall(function() tip:Hide() end)
     return out, capped
 end
 
--- Fill entry.tooltip (and tooltipCapped, tooltipPath) from C_TooltipInfo.<fn>(...),
--- falling back to the scanning tooltip with link.
-local function addTooltip(entry, fn, link, ...)
+-- Fill entry.tooltip (and tooltipCapped, tooltipPath) from C_TooltipInfo.<fn>(...);
+-- when that is missing or gives nothing, from the scanning tooltip with link.
+-- Lines that can name another player are dropped and counted on record.
+local function addTooltip(entry, record, fn, link, ...)
     local path = "C_TooltipInfo." .. fn
+    local lines, capped
     if has(path) then
         local ok, data = call(path, ...)
-        entry.tooltipPath = path
         if ok then
-            entry.tooltip, entry.tooltipCapped = tooltipFromData(data)
+            lines, capped = tooltipFromData(data)
         else
             entry.tooltipError = scalar(tostring(data))
         end
+        if lines then entry.tooltipPath = path end
+    end
+    if not lines and link then
+        lines, capped = scanTooltip(link)
+        if lines then entry.tooltipPath = "scanTooltip" end
+    end
+    if not lines then
+        entry.tooltipPath = "none"
         return
     end
-    if link then
-        entry.tooltip, entry.tooltipCapped = scanTooltip(link)
-        entry.tooltipPath = entry.tooltip and "scanTooltip" or "none"
-        return
-    end
-    entry.tooltipPath = "none"
+    local kept, dropped = dropPrivate(lines)
+    entry.tooltip, entry.tooltipCapped = kept, capped
+    if dropped > 0 and record then record.droppedTooltipLines = (record.droppedTooltipLines or 0) + dropped end
 end
 
 -- ---------------------------------------------------------------------------
@@ -310,6 +401,7 @@ local function ensureDump()
     return dump
 end
 
+-- The header of a main dump (trainer and maps keep their own timestamps).
 local function refreshMeta(dump)
     local meta = dump.meta
     meta.addonVersion = WF.version
@@ -337,10 +429,14 @@ end
 
 local function beginSection(job, name, path, keepData)
     local dump = job.dump
-    local record = { status = "running", path = path, count = 0 }
+    local record = { status = "running", path = path, count = 0, time = dateString() }
     dump.meta.sections[name] = record
     job.sections[name] = { record = record, started = now() }
-    if not keepData or type(dump[name]) ~= "table" then dump[name] = {} end
+    if ACCUMULATING[name] then
+        if type(dump[name]) ~= "table" then dump[name] = {} end
+    elseif not keepData or type(dump[name]) ~= "table" then
+        dump[name] = {}
+    end
     return dump[name], record
 end
 
@@ -360,9 +456,9 @@ local function endSection(job, name, status)
     record.seconds = round(now() - section.started, 2)
 end
 
-local function missingSection(job, name, detail)
-    local _, record = beginSection(job, name, nil)
-    record.status = "missing"
+local function missingSection(job, name, detail, status)
+    local _, record = beginSection(job, name, nil, true)
+    record.status = status or "missing"
     record.detail = detail
     endSection(job, name)
 end
@@ -381,7 +477,7 @@ local function summary(job)
         local section = job.sections[name]
         if section then
             local record = section.record
-            local text = name .. " " .. (record.status == "ok" and tostring(record.count) or record.status)
+            local text = name .. " " .. (record.status == "ok" and tostring(record.count) or tostring(record.status))
             if record.capped then text = text .. " (capped)" end
             parts[#parts + 1] = text
         end
@@ -389,42 +485,74 @@ local function summary(job)
     return table.concat(parts, ", ")
 end
 
+local function addCleanup(job, fn)
+    job.cleanups[#job.cleanups + 1] = fn
+end
+
+local function runCleanups(job)
+    local list = job.cleanups
+    job.cleanups = {}
+    for _, fn in ipairs(list) do WF:Call(MODULE_ID, fn, job) end
+end
+
+-- status: "done", "cancelled" or "error". Clears the job slot first, so a
+-- failing callback can never leave it stuck.
 local function finishJob(job, status)
     if jobs[job.slot] ~= job then return end
     jobs[job.slot] = nil
+    job.status = status
+    runCleanups(job)
     for name in pairs(job.sections) do
-        endSection(job, name, status == "done" and "ok" or "cancelled")
+        endSection(job, name, status == "done" and "ok" or status)
     end
     if job.onFinish then WF:Call(MODULE_ID, job.onFinish, job, status) end
     if job.quiet then return end
-    if status == "done" then
-        WF.Print(job.label .. " complete: " .. summary(job) .. " - /reload to save")
-    else
-        WF.Print(job.label .. " stopped early: " .. summary(job) .. " - /reload to save what was read")
-    end
+    pcall(function()
+        if status == "done" then
+            WF.Print(job.label .. " complete: " .. summary(job) .. " - /reload to save")
+        else
+            WF.Print(job.label .. " stopped early (" .. status .. "): " .. summary(job)
+                .. " - /reload to save what was read")
+        end
+    end)
 end
 
 local nextPhase
 
+local function resume(job)
+    if jobs[job.slot] ~= job or job.cancelled then return end
+    local ok = WF:Call(MODULE_ID, nextPhase, job)
+    if not ok then finishJob(job, "error") end
+end
+
+local function afterPhase(job, phase)
+    if phase.finish then WF:Call(MODULE_ID, phase.finish, job) end
+    local wait = 0
+    if phase.wait then
+        local ok, value = WF:Call(MODULE_ID, phase.wait, job)
+        if ok and type(value) == "number" then wait = value end
+    end
+    if wait > 0 then
+        job.waiting = true
+        C_Timer.After(wait, function()
+            job.waiting = nil
+            resume(job)
+        end)
+    else
+        resume(job)
+    end
+end
+
 local function runSteps(job, phase, steps)
     job.handle = WF:RunChunked(steps, function(status)
         job.handle = nil
+        if jobs[job.slot] ~= job then return end
         if status ~= "done" or job.cancelled then
-            finishJob(job, "cancelled")
+            finishJob(job, status == "done" and "cancelled" or status)
             return
         end
-        if phase.finish then WF:Call(MODULE_ID, phase.finish, job) end
-        local wait = phase.wait and phase.wait(job)
-        if type(wait) == "number" and wait > 0 then
-            job.waiting = true
-            C_Timer.After(wait, WF:Guard(MODULE_ID, function()
-                job.waiting = nil
-                if jobs[job.slot] ~= job or job.cancelled then return end
-                nextPhase(job)
-            end))
-        else
-            nextPhase(job)
-        end
+        local ok = WF:Call(MODULE_ID, afterPhase, job, phase)
+        if not ok then finishJob(job, "error") end
     end, BUDGET_MS, MODULE_ID)
 end
 
@@ -475,17 +603,23 @@ local function startJob(slot, label, phases, onFinish, fields)
         WF.Print("not ready yet; try again after login.")
         return false
     end
-    refreshMeta(dump)
-    local seeds, seeded = readSeeds()
-    dump.meta.seeds = seeded and { items = #seeds.items, spells = #seeds.spells } or nil
     local job = {
-        slot = slot, label = label, phases = phases, index = 0, dump = dump, sections = {},
-        lastProgress = now(), seeds = seeds, knownSpells = {}, onFinish = onFinish,
+        slot = slot, label = label, phases = phases, index = 0, dump = dump, sections = {}, cleanups = {},
+        lastProgress = now(), seeds = { items = {}, spells = {} }, knownSpells = {}, onFinish = onFinish,
     }
     for key, value in pairs(fields or {}) do job[key] = value end
+    if slot == "main" then
+        refreshMeta(dump)
+        dump.meta.complete = false
+        local seeds, seeded = readSeeds()
+        job.seeds = seeds
+        dump.meta.seeds = seeded and { items = #seeds.items, spells = #seeds.spells } or nil
+    end
     jobs[slot] = job
-    WF.Print(label .. " started; keep playing normally, it runs a little each frame.")
-    nextPhase(job)
+    if not job.quietStart then
+        WF.Print(label .. " started; keep playing normally, it runs a little each frame.")
+    end
+    resume(job)
     return true
 end
 
@@ -494,26 +628,27 @@ local function cancelJobs()
         job.cancelled = true
         if job.handle and job.handle.IsRunning() then
             job.handle.Cancel()
-        else
-            finishJob(job, "cancelled")
         end
+        finishJob(job, "cancelled")
     end
 end
 
--- Steps from an array of functions, each wrapped with a progress line.
+-- Steps from an array, each wrapped with a progress line.
 local function each(job, list, label, fn)
     local steps = {}
-    for i, value in ipairs(list) do
+    local count = #list
+    for i = 1, count do
+        local value = list[i]
         steps[i] = function()
             fn(value, i)
-            progress(job, ("%s %d/%d"):format(label, i, #list))
+            progress(job, ("%s %d/%d"):format(label, i, count))
         end
     end
     return steps
 end
 
 -- ---------------------------------------------------------------------------
--- stats
+-- stats (base values only: effective values and modifiers include aura effects)
 
 local function statsPhase()
     return {
@@ -522,18 +657,16 @@ local function statsPhase()
                 missingSection(job, "stats", "UnitStat")
                 return nil
             end
-            local stats, record = beginSection(job, "stats", "UnitStat")
+            local stats, record = beginSection(job, "stats", "UnitStat (base)")
             return { function()
                 stats.primary = {}
                 for index = 1, PRIMARY_STATS do
-                    local ok, base, effective = call("UnitStat", "player", index)
-                    stats.primary[index] = ok and { index = index, base = scalar(base), effective = scalar(effective) }
+                    local ok, base = call("UnitStat", "player", index)
+                    stats.primary[index] = ok and { index = index, base = scalar(base) }
                         or { index = index, error = scalar(tostring(base)) }
                 end
-                local armorOk, armorBase, armorEffective = call("UnitArmor", "player")
-                stats.armor = armorOk and { base = scalar(armorBase), effective = scalar(armorEffective) } or nil
-                stats.healthMax = first("UnitHealthMax", "player")
-                stats.powerMax = first("UnitPowerMax", "player")
+                local armorOk, armorBase = call("UnitArmor", "player")
+                stats.armor = armorOk and { base = scalar(armorBase) } or nil
                 stats.level = first("UnitLevel", "player")
                 local occupied = {}
                 for slot = EQUIP_FIRST, EQUIP_LAST do
@@ -542,8 +675,7 @@ local function statsPhase()
                 end
                 stats.equippedSlots = occupied
                 stats.naked = #occupied == 0
-                stats.paths = { armor = has("UnitArmor"), healthMax = has("UnitHealthMax"),
-                    powerMax = has("UnitPowerMax"), inventory = has("GetInventoryItemID") }
+                stats.paths = { armor = has("UnitArmor"), inventory = has("GetInventoryItemID") }
                 record.count = PRIMARY_STATS
             end }
         end,
@@ -576,7 +708,7 @@ local function powerCosts(spellId)
     return out
 end
 
-local function addSpellDetails(entry, spellId)
+local function addSpellDetails(entry, spellId, record)
     local ok, info = call("C_Spell.GetSpellInfo", spellId)
     if ok and not isSecret(info) and type(info) == "table" then
         if entry.name == nil then entry.name = scalar(info.name) end
@@ -588,12 +720,12 @@ local function addSpellDetails(entry, spellId)
         entry.subtext = first("C_Spell.GetSpellSubtext", spellId) or first("GetSpellSubtext", spellId)
     end
     entry.costs = powerCosts(spellId)
-    addTooltip(entry, "GetSpellByID", "spell:" .. spellId, spellId)
+    addTooltip(entry, record, "GetSpellByID", "spell:" .. spellId, spellId)
 end
 
 -- Enum value -> name (Enum.SpellBookItemType), for readable "kind" values.
 local function enumName(enum, value)
-    if type(enum) ~= "table" or value == nil then return nil end
+    if type(enum) ~= "table" or value == nil or value == "secret" then return nil end
     for name, v in pairs(enum) do
         if v == value then return name end
     end
@@ -623,7 +755,7 @@ local function spellbookReader()
         return "GetSpellBookItemInfo", function(index)
             local ok, kind, id = pcall(old, index, book)
             if not ok then return nil end
-            kind = scalar(kind)
+            kind = known(kind)
             if kind == nil then return nil end
             return { slot = index, id = scalar(id), kind = kind }
         end
@@ -658,12 +790,13 @@ local function spellbookPhase(storeSpells, wantRacials)
             if wantRacials then
                 racials, racialRecord = beginSection(job, "racials", path .. " + subtext contains 'racial'")
             end
+            local record = spellRecord or racialRecord
             local index, done = 0, false
             return function()
                 if done then return nil end
                 return function()
                     index = index + 1
-                    if index > MAX_SPELLBOOK_SLOTS then
+                    if index > MAX_SPELLBOOK_SLOTS or (spells and #spells >= DataDump.caps.spells) then
                         if spellRecord then spellRecord.capped = true end
                         done = true
                         return
@@ -677,7 +810,7 @@ local function spellbookPhase(storeSpells, wantRacials)
                     if type(entry.kind) == "string" then entry.future = entry.kind:lower():find("future") ~= nil end
                     if type(entry.id) == "number" and isSpellKind(entry.kind) then
                         job.knownSpells[entry.id] = true
-                        addSpellDetails(entry, entry.id)
+                        addSpellDetails(entry, entry.id, record)
                     end
                     if spells then
                         spells[#spells + 1] = entry
@@ -717,7 +850,7 @@ local function seedRequestPhase(wantSpells, wantItems)
             return each(job, list, "requesting seeded data", function(seed)
                 if seed.kind == "spell" then
                     if job.knownSpells[seed.id] then return end
-                    local cached = first("C_Spell.IsSpellDataCached", seed.id)
+                    local cached = known(first("C_Spell.IsSpellDataCached", seed.id))
                     if cached ~= true and has("C_Spell.RequestLoadSpellData") then
                         call("C_Spell.RequestLoadSpellData", seed.id)
                         job.seedRequests = job.seedRequests + 1
@@ -725,7 +858,7 @@ local function seedRequestPhase(wantSpells, wantItems)
                 else
                     -- GetItemInfo returns nil for an uncached item and asks
                     -- the server for it (GET_ITEM_INFO_RECEIVED follows).
-                    local name = first("C_Item.GetItemInfo", seed.id) or first("GetItemInfo", seed.id)
+                    local name = known(first("C_Item.GetItemInfo", seed.id) or first("GetItemInfo", seed.id))
                     if name == nil then job.seedRequests = job.seedRequests + 1 end
                 end
             end)
@@ -748,10 +881,14 @@ local function seedSpellsPhase()
             if not spells then return nil end
             record.seedPath = "C_Spell.GetSpellInfo"
             return each(job, list, "seeded spells", function(id)
+                if #spells >= DataDump.caps.spells then
+                    record.capped = true
+                    return
+                end
                 local entry = { id = id, source = "seed" }
-                local cached = first("C_Spell.IsSpellDataCached", id)
+                local cached = known(first("C_Spell.IsSpellDataCached", id))
                 if cached ~= nil then entry.cached = cached end
-                addSpellDetails(entry, id)
+                addSpellDetails(entry, id, record)
                 if entry.name == nil then entry.cached = false end
                 spells[#spells + 1] = entry
                 record.count = #spells
@@ -775,10 +912,10 @@ end
 
 local function talentPrereqs(tab, index)
     if not has("GetTalentPrereqs") then return nil end
-    local returns = { pcall(resolve("GetTalentPrereqs"), tab, index) }
+    local returns = callPacked("GetTalentPrereqs", tab, index)
     if not returns[1] then return nil end
     local out = {}
-    for i = 2, #returns, 3 do
+    for i = 2, returns.n, 3 do
         if #out >= MAX_PREREQS then break end
         out[#out + 1] = { tier = scalar(returns[i]), column = scalar(returns[i + 1]),
             learnable = scalar(returns[i + 2]) }
@@ -827,10 +964,10 @@ local function talentsPhase()
                 end
             end
             return each(job, list, "talents", function(t)
-                local returns = { pcall(resolve("GetTalentInfo"), t.tab, t.index) }
+                local returns = callPacked("GetTalentInfo", t.tab, t.index)
                 local entry = { tab = t.tab, tabName = t.tabName, index = t.index }
                 if returns[1] then
-                    entry.raw = rawReturns(unpack(returns, 2, table.maxn(returns)))
+                    entry.raw = rawReturns(returns, 2)
                     -- Classic order: name, icon, tier, column, rank, maxRank.
                     entry.name = scalar(returns[2])
                     entry.tier = scalar(returns[4])
@@ -852,6 +989,28 @@ end
 -- ---------------------------------------------------------------------------
 -- quests
 
+-- How to read, change and restore the quest log selection, or nil when the
+-- selection cannot be read (then it is never changed).
+local function selectionApi()
+    if has("C_QuestLog.GetSelectedQuest") and has("C_QuestLog.SetSelectedQuest") then
+        return {
+            path = "C_QuestLog.GetSelectedQuest",
+            read = function() return known(first("C_QuestLog.GetSelectedQuest")) end,
+            select = function(questId) call("C_QuestLog.SetSelectedQuest", questId) end,
+            restore = function(value) call("C_QuestLog.SetSelectedQuest", value) end,
+        }
+    end
+    if has("GetQuestLogSelection") and has("SelectQuestLogEntry") then
+        return {
+            path = "GetQuestLogSelection",
+            read = function() return known(first("GetQuestLogSelection")) end,
+            select = function(_, logIndex) call("SelectQuestLogEntry", logIndex) end,
+            restore = function(value) call("SelectQuestLogEntry", value) end,
+        }
+    end
+    return nil
+end
+
 local function questObjectives(questId)
     local ok, objectives = call("C_QuestLog.GetQuestObjectives", questId)
     if not ok or isSecret(objectives) or type(objectives) ~= "table" then return nil end
@@ -869,25 +1028,21 @@ local function questObjectives(questId)
     return out
 end
 
-local function questRewards(entry, questId, logIndex)
+local function questRewards(entry, questId, logIndex, selection)
     -- The reward calls read the selected quest.
-    if has("C_QuestLog.SetSelectedQuest") then
-        call("C_QuestLog.SetSelectedQuest", questId)
-    elseif has("SelectQuestLogEntry") and logIndex then
-        call("SelectQuestLogEntry", logIndex)
-    end
+    selection.select(questId, logIndex)
     local choices = {}
-    local count = first("GetNumQuestLogChoices", questId)
+    local count = known(first("GetNumQuestLogChoices", questId))
     if type(count) == "number" then
         for i = 1, math.min(count, MAX_REWARDS) do
             local row = {}
-            local returns = { call("GetQuestLogChoiceInfo", i, questId) }
+            local returns = callPacked("GetQuestLogChoiceInfo", i, questId)
             if returns[1] then
-                row.raw = rawReturns(unpack(returns, 2, table.maxn(returns)))
+                row.raw = rawReturns(returns, 2)
                 row.name, row.count = scalar(returns[2]), scalar(returns[4])
                 row.quality, row.usable = scalar(returns[5]), scalar(returns[6])
             end
-            local link = first("GetQuestLogItemLink", "choice", i)
+            local link = firstLink("GetQuestLogItemLink", "choice", i)
             row.itemID = linkItemId(link)
             if row.name == nil then row.name = linkName(link) end
             choices[i] = row
@@ -897,8 +1052,8 @@ local function questRewards(entry, questId, logIndex)
     local rewards = {}
     if has("GetQuestLogItemLink") then
         for i = 1, MAX_REWARDS do
-            local link = first("GetQuestLogItemLink", "reward", i)
-            if type(link) ~= "string" then break end
+            local link = firstLink("GetQuestLogItemLink", "reward", i)
+            if not link then break end
             rewards[i] = { itemID = linkItemId(link), name = linkName(link) }
         end
     end
@@ -916,24 +1071,38 @@ local function questsPhase()
             end
             local path = modern and "C_QuestLog.GetInfo" or "GetQuestLogTitle"
             local quests, record = beginSection(job, "quests", path)
-            record.rewardPath = has("GetQuestLogItemLink") and "GetQuestLogItemLink, GetQuestLogChoiceInfo" or "missing"
             record.objectivePath = has("C_QuestLog.GetQuestObjectives") and "C_QuestLog.GetQuestObjectives"
                 or "missing"
             record.xpAndMoney = "not read (no confirmed API)"
+            local selection = selectionApi()
+            local original = selection and selection.read()
+            if type(original) ~= "number" then selection = nil end
+            if selection then
+                record.rewardPath = "GetQuestLogItemLink, GetQuestLogChoiceInfo (selection via "
+                    .. selection.path .. ")"
+                local restored = false
+                addCleanup(job, function()
+                    if restored then return end
+                    restored = true
+                    selection.restore(original)
+                    record.selectionRestored = true
+                end)
+            else
+                record.rewardPath = "unavailable (the quest log selection cannot be read, so it is not changed)"
+            end
             local entries = first(modern and "C_QuestLog.GetNumQuestLogEntries" or "GetNumQuestLogEntries")
             if type(entries) ~= "number" then return nil end
             if entries > MAX_QUESTS then
                 record.capped = true
                 entries = MAX_QUESTS
             end
-            job.questSelection = first("GetQuestLogSelection")
             local list = {}
             for index = 1, entries do list[index] = index end
             return each(job, list, "quest log", function(index)
                 local entry
                 if modern then
                     local ok, info = call("C_QuestLog.GetInfo", index)
-                    if not ok or isSecret(info) or type(info) ~= "table" or scalar(info.isHeader) then return end
+                    if not ok or isSecret(info) or type(info) ~= "table" or known(info.isHeader) == true then return end
                     entry = {
                         questID = scalar(info.questID), title = scalar(info.title), level = scalar(info.level),
                         suggestedGroup = scalar(info.suggestedGroup), difficultyLevel = scalar(info.difficultyLevel),
@@ -942,7 +1111,7 @@ local function questsPhase()
                 else
                     local ok, title, level, group, isHeader, _, _, frequency, questId =
                         call("GetQuestLogTitle", index)
-                    if not ok or scalar(isHeader) then return end
+                    if not ok or known(isHeader) then return end
                     entry = {
                         questID = scalar(questId), title = scalar(title), level = scalar(level),
                         suggestedGroup = scalar(group), frequency = scalar(frequency), logIndex = index,
@@ -950,17 +1119,18 @@ local function questsPhase()
                 end
                 if type(entry.questID) == "number" then
                     entry.objectives = questObjectives(entry.questID)
-                    questRewards(entry, entry.questID, index)
+                    if selection then
+                        questRewards(entry, entry.questID, index, selection)
+                    else
+                        entry.rewardsUnavailable = true
+                    end
                 end
                 quests[#quests + 1] = entry
                 record.count = #quests
             end)
         end,
         finish = function(job)
-            local record = job.dump.meta.sections.quests
-            if record and type(job.questSelection) == "number" and has("SelectQuestLogEntry") then
-                record.selectionRestored = (call("SelectQuestLogEntry", job.questSelection))
-            end
+            runCleanups(job)
             endSection(job, "quests")
         end,
     }
@@ -996,7 +1166,7 @@ local function addItemDetails(entry, linkOrId)
             entry.itemType, entry.itemSubType = scalar(itemType), scalar(itemSubType)
             entry.equipSlot, entry.sellPrice = scalar(equipLoc), scalar(sellPrice)
             entry.classID, entry.subclassID = scalar(classId), scalar(subclassId)
-            infoLink = scalar(infoLink)
+            infoLink = known(infoLink)
             if link == nil and type(infoLink) == "string" then link = infoLink end
         end
     end
@@ -1034,17 +1204,17 @@ local function itemsPhase()
                 end
             end
             return each(job, list, "items", function(place)
-                if #items >= MAX_ITEMS then
+                if #items >= DataDump.caps.items then
                     record.capped = true
                     return
                 end
                 local link
                 if place.bag then
-                    link = first("C_Container.GetContainerItemLink", place.bag, place.slot)
+                    link = firstLink("C_Container.GetContainerItemLink", place.bag, place.slot)
                 else
-                    link = first("GetInventoryItemLink", "player", place.slot)
+                    link = firstLink("GetInventoryItemLink", "player", place.slot)
                 end
-                if type(link) ~= "string" then return end
+                if not link then return end
                 local entry = {
                     source = place.bag and "bag" or "equipped", bag = place.bag, slot = place.slot,
                     itemID = linkItemId(link), name = linkName(link),
@@ -1057,9 +1227,9 @@ local function itemsPhase()
                 end
                 addItemDetails(entry, link)
                 if place.bag then
-                    addTooltip(entry, "GetBagItem", link, place.bag, place.slot)
+                    addTooltip(entry, record, "GetBagItem", link, place.bag, place.slot)
                 else
-                    addTooltip(entry, "GetInventoryItem", link, "player", place.slot)
+                    addTooltip(entry, record, "GetInventoryItem", link, "player", place.slot)
                 end
                 items[#items + 1] = entry
                 record.count = #items
@@ -1079,10 +1249,14 @@ local function seedItemsPhase()
             end
             record.seedPath = itemInfoPath() or "missing"
             return each(job, job.seeds.items, "seeded items", function(id)
+                if #items >= DataDump.caps.items then
+                    record.capped = true
+                    return
+                end
                 local entry = { source = "seed", itemID = id }
                 local link = addItemDetails(entry, id)
                 if entry.cached == nil then entry.cached = false end
-                if entry.cached then addTooltip(entry, "GetItemByID", link, id) end
+                if entry.cached then addTooltip(entry, record, "GetItemByID", link, id) end
                 items[#items + 1] = entry
                 record.count = #items
             end)
@@ -1153,7 +1327,7 @@ function DataDump.RecordZone(event)
     dump.maps[#dump.maps + 1] = row
     mapIndex[key] = row
     meta.sections.maps = { status = "ok", path = "events: C_Map.GetBestMapForUnit, C_Map.GetMapInfo",
-        count = #dump.maps, capped = meta.mapsCapped }
+        count = #dump.maps, capped = meta.mapsCapped, time = row.time }
     return row
 end
 
@@ -1178,13 +1352,13 @@ end
 -- reads name, category, icon, _, rank when the third value is a number, and
 -- name, rank, category otherwise.
 local function trainerService(index)
-    local returns = { call("GetTrainerServiceInfo", index) }
+    local returns = callPacked("GetTrainerServiceInfo", index)
     local entry = { index = index }
     if not returns[1] then
         entry.error = scalar(tostring(returns[2]))
         return entry
     end
-    entry.raw = rawReturns(unpack(returns, 2, table.maxn(returns)))
+    entry.raw = rawReturns(returns, 2)
     entry.name = scalar(returns[2])
     local second, third = scalar(returns[3]), scalar(returns[4])
     if type(third) == "number" then
@@ -1198,6 +1372,14 @@ local function trainerService(index)
     return entry
 end
 
+local function countKeys(t)
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+end
+
+-- The record is built in the job and saved only when the run is done (see
+-- storeTrainerRecord), so a closed window never replaces a complete record.
 local function trainerPhase()
     return {
         start = function(job)
@@ -1208,28 +1390,27 @@ local function trainerPhase()
             local count = first("GetNumTrainerServices")
             if not trainerOpen and (type(count) ~= "number" or count == 0) then
                 WF.Print("trainer dump: no trainer window is open. Talk to a trainer first.")
-                job.noTrainer = true
                 job.quiet = true
                 return nil
             end
             local dump = job.dump
             local guidOk, guid = call("UnitGUID", "npc")
             local npcId = guidOk and DataDump.ParseCreatureId(guid) or nil
-            local key = npcId and tostring(npcId) or "unknown"
-            if dump.trainer[key] == nil then
-                local records = 0
-                for _ in pairs(dump.trainer) do records = records + 1 end
-                if records >= MAX_TRAINER_RECORDS then
-                    missingSection(job, "trainer", "trainer record cap reached")
-                    dump.meta.sections.trainer.status = "capped"
-                    return nil
-                end
+            if not npcId then
+                WF.Print("trainer dump: could not read this trainer's creature ID; nothing saved.")
+                job.quiet = true
+                return nil
+            end
+            local key = tostring(npcId)
+            if dump.trainer[key] == nil and countKeys(dump.trainer) >= MAX_TRAINER_RECORDS then
+                missingSection(job, "trainer", "trainer record cap reached", "capped")
+                return nil
             end
             local position = trainerPosition()
             local record = {
                 npcId = npcId, uiMapID = position.uiMapID, x = position.x, y = position.y,
-                time = dateString(), tradeskill = first("IsTradeskillTrainer"),
-                level = first("UnitLevel", "player"), filters = {}, services = {},
+                time = dateString(), tradeskill = known(first("IsTradeskillTrainer")),
+                level = first("UnitLevel", "player"), filters = {}, services = {}, complete = false,
                 paths = {
                     cost = has("GetTrainerServiceCost"), levelReq = has("GetTrainerServiceLevelReq"),
                     skillLine = has("GetTrainerServiceSkillLine"), spellId = false, tooltip = false,
@@ -1237,7 +1418,7 @@ local function trainerPhase()
             }
             local filtersOff = {}
             for _, filter in ipairs(TRAINER_FILTERS) do
-                local value = has("GetTrainerServiceTypeFilter") and first("GetTrainerServiceTypeFilter", filter)
+                local value = has("GetTrainerServiceTypeFilter") and known(first("GetTrainerServiceTypeFilter", filter))
                 if value == nil then value = false end
                 record.filters[filter] = value
                 if value == false or value == 0 then filtersOff[#filtersOff + 1] = filter end
@@ -1247,8 +1428,8 @@ local function trainerPhase()
                     .. " services. Tick all filters (available, unavailable, used) and reopen the trainer "
                     .. "for a complete list.")
             end
-            dump.trainer[key] = record
-            local _, section = beginSection(job, "trainer", "GetTrainerServiceInfo", true)
+            job.trainerKey, job.trainerRecord = key, record
+            local _, section = beginSection(job, "trainer", "GetTrainerServiceInfo")
             section.lastNpcId = npcId
             if type(count) ~= "number" then count = 0 end
             if count > MAX_TRAINER_SERVICES then
@@ -1268,6 +1449,23 @@ local function trainerPhase()
     }
 end
 
+-- Save the finished record unless a complete earlier record for the same
+-- trainer lists more services.
+local function storeTrainerRecord(job)
+    local record, key = job.trainerRecord, job.trainerKey
+    if not record then return end
+    record.complete = not record.capped
+    local existing = job.dump.trainer[key]
+    local keep = type(existing) == "table" and existing.complete == true and type(existing.services) == "table"
+        and #existing.services > #record.services
+    local section = job.dump.meta.sections.trainer
+    if keep then
+        if section then section.kept = "an earlier complete record lists more services" end
+        return
+    end
+    job.dump.trainer[key] = record
+end
+
 -- Fill trainer services' spellId from this dump's spellbook where name and
 -- rank text match exactly one spell (spellIdSource = "spellbook").
 local function linkTrainerSpellIds(dump)
@@ -1276,16 +1474,17 @@ local function linkTrainerSpellIds(dump)
     for _, spell in ipairs(dump.spells) do
         if type(spell.id) == "number" and type(spell.name) == "string" then
             local key = spell.name .. "\0" .. (type(spell.subtext) == "string" and spell.subtext or "")
-            local known = byName[key]
-            if known == nil then
+            local seen = byName[key]
+            if seen == nil then
                 byName[key] = spell.id
-            elseif known ~= spell.id then
+            elseif seen ~= spell.id then
                 byName[key] = false -- ambiguous: never guess
             end
         end
     end
     for _, record in pairs(dump.trainer) do
-        for _, service in ipairs(type(record) == "table" and record.services or {}) do
+        for _, service in ipairs(type(record) == "table" and type(record.services) == "table" and record.services
+                or {}) do
             if type(service.name) == "string" then
                 local id = byName[service.name .. "\0" .. (type(service.rank) == "string" and service.rank or "")]
                 if id then
@@ -1327,10 +1526,8 @@ local function fullPhases()
 end
 
 local function afterMainDump(job, status)
-    if status == "done" then
-        job.dump.meta.complete = job.full == true
-        linkTrainerSpellIds(job.dump)
-    end
+    job.dump.meta.complete = status == "done" and job.full == true
+    if status == "done" then linkTrainerSpellIds(job.dump) end
 end
 
 --- Start a dump: section nil for a full dump, or one section name.
@@ -1353,12 +1550,18 @@ end
 --- Dump the open trainer window (also runs on TRAINER_SHOW).
 function DataDump.DumpTrainer()
     return startJob("trainer", "trainer dump", { trainerPhase() }, function(job, status)
-        if status == "done" and not job.noTrainer then linkTrainerSpellIds(job.dump) end
+        if status ~= "done" then return end
+        storeTrainerRecord(job)
+        linkTrainerSpellIds(job.dump)
     end)
 end
 
 function DataDump.IsRunning()
     return jobs.main ~= nil
+end
+
+function DataDump.IsTrainerRunning()
+    return jobs.trainer ~= nil
 end
 
 local function printStatus()
@@ -1381,8 +1584,7 @@ local function printStatus()
             WF.Print("  " .. name .. ": not dumped")
         end
     end
-    local trainers = 0
-    for _ in pairs(type(dump.trainer) == "table" and dump.trainer or {}) do trainers = trainers + 1 end
+    local trainers = type(dump.trainer) == "table" and countKeys(dump.trainer) or 0
     WF.Print(("  trainer records: %d; zone rows: %d"):format(trainers, type(dump.maps) == "table" and #dump.maps or 0))
     local seeds = WF.dumpSeeds
     if type(seeds) == "table" then
@@ -1459,7 +1661,7 @@ WF:RegisterModule(MODULE_ID, {
             frame:UnregisterAllEvents()
             frame:SetScript("OnEvent", nil)
         end
-        if scanner then pcall(scanner.Hide, scanner) end
+        if scanner then pcall(function() scanner:Hide() end) end
     end,
     slash = {
         dump = slashDump,
