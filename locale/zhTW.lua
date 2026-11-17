@@ -45,7 +45,7 @@ L["Flying to %s ETA %s"] = "正在飛往 %s 預計到達時間 %s"
 L["Give Feedback for step"] = "為步驟提供反饋"
 L["I just leveled from %d to %d in %s"] = "我剛剛在 %s 從 %d 級升到了 %d 級"
 L["I just leveled up to %d"] = "我剛剛升到了 %d 級"
-L["Join our support discord at discord.gg/RestedXP and copy paste this form into #bug-report"] = "加入我們的支援 Discord discord.gg/RestedXP 並將此表單複製貼上到 #bug-report 頻道"
+-- WF: removed the translation of the RestedXP Discord bug-report label (no outbound links, B18 E1)
 L["RestedXP Feedback Form"] = "RestedXP 反饋表單"
 L["There's a new addon version (%s) available"] = "有新的插件版本 (%s) 可用"
 L["There's a new version (%s) available for %s"] = "%s 有新版本 (%s) 可用"

@@ -4,8 +4,9 @@ local fmt, tinsert, tremove, mmax, mmin, mrand = string.format, table.insert, ta
                                                  math.random
 local GetMacroInfo, CreateMacro, EditMacro, InCombatLockdown, GetNumMacros = GetMacroInfo, CreateMacro, EditMacro,
                                                                              InCombatLockdown, GetNumMacros
-local TargetUnit, next, IsInRaid, UnitIsDead, UnitIsGroupLeader, IsInGroup, UnitOnTaxi, UnitIsPlayer,
-      UnitIsUnit = TargetUnit, next, IsInRaid, UnitIsDead, UnitIsGroupLeader, IsInGroup, UnitOnTaxi,
+-- WF: TargetUnit local dropped with the proximity scan (B18 A1)
+local next, IsInRaid, UnitIsDead, UnitIsGroupLeader, IsInGroup, UnitOnTaxi, UnitIsPlayer,
+      UnitIsUnit = next, IsInRaid, UnitIsDead, UnitIsGroupLeader, IsInGroup, UnitOnTaxi,
                    UnitIsPlayer, UnitIsUnit
 local GetRaidTargetIndex, SetRaidTarget = GetRaidTargetIndex, SetRaidTarget
 local GetTime, FlashClientIcon, PlaySound = GetTime, FlashClientIcon, PlaySound
@@ -26,15 +27,7 @@ local announcedTargets = {}
 local macroTargets = {}
 local lowPrioTargets = {}
 
-local proxmityPolling = {
-    frequency = 0.25,
-    match = false,
-    lastMatch = 0,
-    matchTimeout = 5,
-    scanData = {},
-    scannedTargets = {},
-    rareAnnounced = {}
-}
+-- WF: proxmityPolling state removed with the TargetUnit() proximity scan (B18 A1)
 
 local targetList = {}
 local targetPlaceholder = 2056011 -- Ui_chat
@@ -112,57 +105,17 @@ function addon.targeting:Setup()
         end
     end
 
-    if addon.settings.profile.showTargetingOnProximity then
-        if addon.settings.profile and addon.settings.profile.updateFrequency then
-            proxmityPolling.frequency = addon.settings.profile.updateFrequency / 2000
-        end
-
-        self.ticker = C_Timer.NewTicker(proxmityPolling.frequency, self.CheckTargetProximity)
-
-        if StaticPopupDialogs["ADDON_ACTION_FORBIDDEN"] then
-            -- Disables and mutes the annoying dialog that shows up
-            local actionForbiddenText = fmt(ADDON_ACTION_FORBIDDEN, addonName)
-
-            local ForbiddenTextBoxHook = function(this)
-                local text = this.text or this.Text
-                if text and text:GetText() == actionForbiddenText then
-                    if this:IsShown() then this:Hide() end
-
-                    local _, channel = PlaySound(SOUNDKIT.IG_MAINMENU_CLOSE)
-
-                    if channel then
-                        StopSound(channel)
-                        StopSound(channel - 1)
-                    end
-
-                    StaticPopupDialogs["ADDON_ACTION_FORBIDDEN"] = nil
-                end
-            end
-
-            _G.StaticPopup1:HookScript("OnShow", ForbiddenTextBoxHook)
-            _G.StaticPopup1:HookScript("OnHide", ForbiddenTextBoxHook)
-            _G.StaticPopup2:HookScript("OnShow", ForbiddenTextBoxHook)
-            _G.StaticPopup2:HookScript("OnHide", ForbiddenTextBoxHook)
-
-            self:RegisterEvent("ADDON_ACTION_FORBIDDEN")
-
-            -- Prevent default forbidden UI popup
-            UIParent:UnregisterEvent("ADDON_ACTION_FORBIDDEN")
-        end
-    end
-
-    if addon.rares then
-        self:LoadRares()
-        self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    end
+    -- WF: removed the timer-driven TargetUnit() proximity scan, the ADDON_ACTION_FORBIDDEN listener, the
+    -- StaticPopup hooks and UIParent:UnregisterEvent("ADDON_ACTION_FORBIDDEN"), and the rare loading that only
+    -- that scan used (Protected actions need a player click, B18 A1/A2/H5).
 end
 
 function addon.targeting.GetCurrentTargets() return targetList, mobList, unitscanList, rareTargets end
 
 local function shouldTargetCheck()
     return not IsInRaid() and not UnitOnTaxi("player") and not addon.isCastingHS and
-               (next(unitscanList) ~= nil or next(mobList) ~= nil or next(targetList) ~= nil or next(rareTargets) ~= nil or
-                   next(proxmityPolling.scannedTargets) ~= nil)
+               (next(unitscanList) ~= nil or next(mobList) ~= nil or next(targetList) ~= nil or next(rareTargets) ~= nil)
+    -- WF: proximity scannedTargets term removed (B18 A1)
 
 end
 
@@ -538,91 +491,7 @@ addon.targeting.QUEST_PROGRESS = addon.targeting.GOSSIP_SHOW
 addon.targeting.QUEST_GREETING = addon.targeting.GOSSIP_SHOW
 addon.targeting.QUEST_COMPLETE = addon.targeting.GOSSIP_SHOW
 
-function addon.targeting.CheckTargetProximity()
-    if not shouldTargetCheck() or not addon.settings.profile.showTargetingOnProximity or not addon.unitscanEnabled then return end
-
-    if addon.settings.profile.enableEnemyTargeting then
-        for _, name in pairs(unitscanList) do
-            proxmityPolling.scanData = {name = name, kind = 'unitscan'}
-            TargetUnit(name, true)
-        end
-
-        for _, name in pairs(mobList) do
-            proxmityPolling.scanData = {name = name, kind = 'mob'}
-            TargetUnit(name, true)
-        end
-    end
-
-    if addon.settings.profile.enableFriendlyTargeting then
-        for _, name in pairs(targetList) do
-            proxmityPolling.scanData = {name = name, kind = 'friendly'}
-            TargetUnit(name, true)
-        end
-    end
-
-    if addon.settings.profile.scanForRares then
-        for _, name in ipairs(rareTargets) do
-            proxmityPolling.scanData = {name = name, kind = 'rare'}
-            TargetUnit(name, true)
-        end
-    end
-
-    local now = GetTime()
-
-    -- Unset match if >5s without a ADDON_ACTION_FORBIDDEN
-    -- No hits, reset everything
-    if proxmityPolling.match and now - proxmityPolling.lastMatch > proxmityPolling.matchTimeout then
-
-        addon.comms.PrettyDebug("All match expired, resetting targets")
-
-        proxmityPolling.match = false
-        wipe(proxmityPolling.rareAnnounced)
-        wipe(proxmityPolling.scannedTargets)
-        if not InCombatLockdown() then addon.targeting.activeTargetFrame:Hide() end
-
-        -- Full reset, so don't handle per-mob checks below
-        return
-    end
-
-    for name, data in pairs(proxmityPolling.scannedTargets) do
-        if now - data.lastMatch > proxmityPolling.matchTimeout then
-            addon.comms.PrettyDebug("Individual match expired", name)
-
-            proxmityPolling.scannedTargets[name] = nil
-        end
-    end
-end
-
-function addon.targeting:ADDON_ACTION_FORBIDDEN(_, forbiddenAddon, func)
-    if func ~= "TargetUnit()" or forbiddenAddon ~= addonName then return end
-
-    -- Unexpected call from (mistakenly) RXP
-    if not proxmityPolling.scanData or not proxmityPolling.scanData.name then return end
-
-    local scannedName = proxmityPolling.scanData.name
-    local now = GetTime()
-
-    proxmityPolling.scannedTargets[scannedName] = {kind = proxmityPolling.scanData.kind, lastMatch = now}
-    proxmityPolling.lastMatch = now
-    self:UpdateTargetFrame()
-
-    if proxmityPolling.scanData.kind == 'rare' and addon.settings.profile.notifyOnRares and
-        not proxmityPolling.rareAnnounced[scannedName] then
-
-        proxmityPolling.rareAnnounced[scannedName] = true
-        addon.comms.PrettyPrint(L("Rare Found! %s is nearby."), scannedName) -- TODO locale
-    end
-
-    -- Only notify sound once per step
-    if proxmityPolling.match then return end
-
-    proxmityPolling.match = true
-
-    if addon.settings.profile.soundOnFind ~= "none" and
-        (proxmityPolling.scanData.kind == 'rare' or proxmityPolling.scanData.kind == 'unitscan') then
-        PlaySound(addon.settings.profile.soundOnFind, addon.settings.profile.soundOnFindChannel)
-    end
-end
+-- WF: CheckTargetProximity (TargetUnit() on a ticker) and the ADDON_ACTION_FORBIDDEN handler removed (B18 A1/A2)
 
 function addon.targeting:UpdateUnitList()
     local stepUnitscan = {}
@@ -649,8 +518,8 @@ function addon.targeting:UpdateUnitList()
     local mobsGenerated = {}
     local targetsGenerated = {}
     for generatedKind, context in pairs(addon.generatedSteps) do
-        -- Only include dangerousMobs in targeting if showTargetingOnProximity
-        if generatedKind ~= "dangerousMobs" or addon.settings.profile.showTargetingOnProximity then
+        -- WF: dangerousMobs were only included with the removed proximity scan (B18 A1)
+        if generatedKind ~= "dangerousMobs" then
             for _, step in ipairs(context) do
                 for _, element in ipairs(step.elements or {}) do
                     AddUnits(element, unitscanGenerated, mobsGenerated, targetsGenerated)
@@ -727,13 +596,7 @@ function addon.targeting:UpdateTargetList(targets, addEntries)
 
     if not addon.settings.profile.enableTargetFrame then return end
 
-    proxmityPolling.match = false
-    proxmityPolling.lastMatch = 0
-    if addon.settings.profile.showTargetingOnProximity then
-        for name, data in pairs(proxmityPolling.scannedTargets) do
-            if data.kind == 'friendly' then proxmityPolling.scannedTargets[name] = nil end
-        end
-    end
+    -- WF: proximity-scan match reset removed (B18 A1)
 
     self:UpdateTargetFrame()
 end
@@ -790,13 +653,7 @@ function addon.targeting:UpdateEnemyList(unitscan, mobs, addEntries)
 
     if not addon.settings.profile.enableTargetFrame then return end
 
-    proxmityPolling.match = false
-    proxmityPolling.lastMatch = 0
-    if addon.settings.profile.showTargetingOnProximity then
-        for name, data in pairs(proxmityPolling.scannedTargets) do
-            if data.kind == 'unitscan' or data.kind == 'mob' then proxmityPolling.scannedTargets[name] = nil end
-        end
-    end
+    -- WF: proximity-scan match reset removed (B18 A1)
 
     self:UpdateTargetFrame()
 end
@@ -851,10 +708,7 @@ function addon.targeting:CreateTargetFrame()
         if not addon.settings.profile.enableTargetFrame then return nil, true end
         if (self.activeTargetCount or 0) == 0 then return nil, true end
 
-        if addon.settings.profile.showTargetingOnProximity then
-            return proxmityPolling.match and shouldTargetCheck(), true
-        end
-
+        -- WF: proximity-scan branch removed (B18 A1)
         return shouldTargetCheck(), true
     end
 
@@ -977,6 +831,8 @@ function addon.targeting:GetMarkerIndex(kind, kindIndex)
 end
 
 function addon.targeting:UpdateMarker(kind, unitId, index)
+    -- WF: return before the unit dead-state read on Forever; marking was already unreachable here (B18 A10/C9e)
+    if addon.game == "FOREVER" then return end
     if (UnitIsDead(unitId) and kind ~= 'friendly') or UnitIsPlayer(unitId) or UnitIsUnit(unitId, "pet") then return end
 
     if IsInGroup() and not UnitIsGroupLeader('player') then
@@ -1137,21 +993,10 @@ function addon.targeting:UpdateTargetFrame(selector)
     local enemyTargetButtonIndex = 0
     local enemiesList = {}
 
-    if not addon.settings.profile.showTargetingOnProximity then
-        -- If proximity disabled, show all
-        for _, n in ipairs(unitscanList) do enemiesList[n] = 'unitscan' end
+    -- WF: proximity scan removed (B18 A1); always show all, as upstream did with proximity off
+    for _, n in ipairs(unitscanList) do enemiesList[n] = 'unitscan' end
 
-        for _, n in ipairs(mobList) do enemiesList[n] = 'mob' end
-    end
-
-    if addon.settings.profile.showTargetingOnProximity then
-        for name, data in pairs(proxmityPolling.scannedTargets) do
-            if data.kind ~= 'friendly' then
-                -- enemies row contains: unitscan, mob, and rare
-                enemiesList[name] = data.kind
-            end
-        end
-    end
+    for _, n in ipairs(mobList) do enemiesList[n] = 'mob' end
 
     for frame in pairs(addon.targeting.activeIcons) do
         frame:Hide()
@@ -1226,14 +1071,8 @@ function addon.targeting:UpdateTargetFrame(selector)
 
     local friendlyTargetButtons = targetFrame.friendlyTargetButtons
     local friendlyTargetButtonIndex = 0
-    -- If proximity disabled, show all
-    local friendlyList = addon.settings.profile.showTargetingOnProximity and {} or targetList
-
-    if addon.settings.profile.showTargetingOnProximity then
-        for name, data in pairs(proxmityPolling.scannedTargets) do
-            if data.kind == 'friendly' then tinsert(friendlyList, name) end
-        end
-    end
+    -- WF: proximity scan removed (B18 A1); always show all
+    local friendlyList = targetList
 
     for _, targetName in ipairs(friendlyList) do
         friendlyTargetButtonIndex = friendlyTargetButtonIndex + 1
@@ -1313,46 +1152,13 @@ function addon.targeting:UpdateTargetFrame(selector)
 
     if (friendlyTargetButtonIndex == 0 and enemyTargetButtonIndex == 0) or not addon.settings.profile.showEnabled then
         targetFrame:Hide()
-    elseif addon.settings.profile.showTargetingOnProximity then
-        if proxmityPolling.match then
-            targetFrame:Show()
-        else
-            targetFrame:Hide()
-        end
-    else
+    else -- WF: proximity-scan branch removed (B18 A1)
         targetFrame:Show()
     end
 end
 
-function addon.targeting:ZONE_CHANGED_NEW_AREA() self:LoadRares() end
-
-function addon.targeting:LoadRares()
-    if not addon.settings.profile.scanForRares or not addon.settings.profile.showTargetingOnProximity or
-        not addon.settings.profile.enableTargetFrame or not addon.rares then return end
-
-    -- Reset found rares
-    for name, data in pairs(proxmityPolling.scannedTargets) do
-        if data.kind == 'rare' then proxmityPolling.scannedTargets[name] = nil end
-    end
-
-    local zoneID = HBD:GetPlayerZone()
-    local zoneName = ""
-
-    for name, id in pairs(addon.mapId) do
-        if id == zoneID then
-            zoneName = name
-            break
-        end
-    end
-
-    local zone = GetRealZoneText()
-    local subzone = GetSubZoneText()
-
-    if not zoneID then return end
-    rareTargets = addon.rares[subzone] or addon.rares[zone] or addon.rares[zoneID] or addon.rares[zoneName] or {}
-
-    self:UpdateTargetFrame()
-end
+-- WF: ZONE_CHANGED_NEW_AREA handler and LoadRares removed: rares were loaded only for the removed
+-- TargetUnit() proximity scan (B18 A1)
 
 function addon.ResetTargetPosition()
     local f = _G.RXPTargetFrame

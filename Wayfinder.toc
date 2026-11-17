@@ -21,7 +21,6 @@ GuideWindow.lua
 Help.lua
 SettingsPanel.lua
 DB/forever.xml
-HSBatching.lua
 QuestLog.lua
 ActiveItemFrame.lua
 LevelingTracker.lua

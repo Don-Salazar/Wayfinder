@@ -8,8 +8,8 @@ local GetSpellSubtext = C_Spell and C_Spell.GetSpellSubtext or _G.GetSpellSubtex
 local IsCurrentSpell = C_Spell and C_Spell.IsCurrentSpell or _G.IsCurrentSpell
 local IsSpellKnown = C_Spell and C_Spell.IsSpellKnown or _G.IsSpellKnown
 local IsPlayerSpell = C_Spell and C_Spell.IsPlayerSpell or _G.IsPlayerSpell
-local GetTime, GetMirrorTimerProgress = _G.GetTime, _G.GetMirrorTimerProgress
-local UnitHealth, UnitHealthMax, UnitIsDead = _G.UnitHealth, _G.UnitHealthMax, _G.UnitIsDead
+-- WF: breath-timer and health reads removed with the emergency/drowning tips (No combat logic, B18 C1/C2)
+local GetTime = _G.GetTime
 local HasAction, GetActionInfo, GetMacroSpell = HasAction, GetActionInfo, GetMacroSpell
 local IsOnBarOrSpecialBar = C_ActionBar.IsOnBarOrSpecialBar
 local tinsert, fmt = tinsert, string.format
@@ -38,18 +38,9 @@ function addon.tips:Setup()
     self:CreateTipsFrame()
     self:CreateDangerWarning()
 
-    self:RegisterEvent("MIRROR_TIMER_START")
-    self:RegisterEvent("MIRROR_TIMER_STOP")
-
-    self:CatalogInventory()
-
-    self:RegisterEvent("PLAYER_STARTED_MOVING")
-    self:UpdateEmergencySpells()
-
-    self:CatalogActionBars()
-    self:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-
-    WorldFrame:HookScript("OnUpdate", self.CheckEvents)
+    -- WF: emergency-action (player health) and drowning (breath timer) tips removed: no MIRROR_TIMER_*,
+    -- inventory/action-bar catalogue or WorldFrame OnUpdate poll (No combat logic, B18 C1/C2).
+    -- The danger-warning frame stays for the targeting flash (Targeting.lua).
 
     if addon.dangerousMobs then
         self:LoadDangerousMobs()
@@ -57,284 +48,13 @@ function addon.tips:Setup()
     end
 end
 
-function addon.tips:PLAYER_STARTED_MOVING()
-    -- Spams at login, so delay until after player moves
-    self:RegisterEvent("UNIT_INVENTORY_CHANGED")
-
-    self:UnregisterEvent("PLAYER_STARTED_MOVING")
-end
-
 function addon.tips:CreateTipsFrame()
     if not addon.settings.profile.enableTipsFrame then return end
     -- TODO
 end
 
-function addon.tips:MIRROR_TIMER_START(_, timerName, value, maxValue, rate)
-    if timerName ~= "BREATH" or not addon.settings.profile.enableDrowningWarning then return end
-
-    -- Recovering breath
-    if rate > 0 then
-        session.breath = nil
-        return
-    end
-
-    -- Draining down, event fires with 30 when regaining breath
-    session.breath = {value = value, maxValue = maxValue}
-end
-
-function addon.tips:MIRROR_TIMER_STOP(_, timerName)
-    if timerName ~= "BREATH" or not addon.settings.profile.enableDrowningWarning then return end
-
-    session.breath = nil
-end
-
-function addon.tips.CheckEvents()
-    if not addon.settings.profile.enableTips then return end
-
-    if GetTime() - session.checkLast <= session.checkFrequency then return end
-
-    if session.breath then
-        session.breath.value = GetMirrorTimerProgress("BREATH")
-
-        if session.breath.value == 0 or (session.breath.value / session.breath.maxValue) <
-            addon.settings.profile.drowningThreshold then
-
-            if GetTime() - session.lastAlert > session.alertFrequency then
-                if addon.settings.profile.enableDrowningScreenFlash then
-                    addon.tips:EnableDangerWarning(2)
-                end
-                FlashClientIcon()
-                UIErrorsFrame:AddMessage(STRING_ENVIRONMENTAL_DAMAGE_DROWNING, 1.0, 0.1, 0.1, session.alertFrequency);
-
-                if addon.settings.profile.enableDrowningWarningSound then
-                    PlaySound(_G.SOUNDKIT.RAID_WARNING, "Master")
-                end
-                session.lastAlert = GetTime()
-            end
-        end
-    end
-
-    addon.tips:CheckEmergencyActions()
-
-    session.checkLast = GetTime()
-end
-
-function addon.tips:CheckEmergencyActions()
-    if not addon.settings.profile.enableEmergencyActions then return end
-    if UnitIsDead('player') then
-        for _, border in pairs(session.highlights) do if border:IsShown() then border:Hide() end end
-
-        return
-    end
-
-    local maxHP = not addon.IsSecretValue(UnitHealthMax("player")) and UnitHealthMax("player") or 0
-    local currentHP = not addon.IsSecretValue(UnitHealth("player")) and UnitHealth("player") or 0
-    if maxHP > 0 and currentHP > 0 and currentHP / maxHP < addon.settings.profile.emergencyThreshold then
-
-        addon.tips:HighlightEmergencyItem()
-        addon.tips:HighlightEmergencySpell()
-
-        if addon.settings.profile.enableEmergencyScreenFlash then addon.tips:EnableDangerWarning(1) end
-        return
-    end
-
-    for _, border in pairs(session.highlights) do if border:IsShown() then border:Hide() end end
-
-end
-
-function addon.tips:CatalogInventory()
-    if not addon.emergencyItems or not addon.settings.profile.enableEmergencyActions then return end
-
-    local itemList = {}
-    local inventory = addon.inventoryManager:CatalogInventory()
-
-    for _, item in ipairs(inventory) do
-        if addon.emergencyItems[item.id] then
-            tinsert(itemList, item)
-        end
-    end
-
-    session.emergencyItems = itemList
-end
-
-function addon.tips:UpdateEmergencySpells()
-    if not addon.emergencySpells or not addon.settings.profile.enableEmergencyActions then return end
-
-    local spellList = {}
-
-    local name, icon
-
-    for spellId in pairs(addon.emergencySpells.professions or {}) do
-        -- Only add spells on action bars
-        if IsPlayerSpell(spellId) and IsOnBarOrSpecialBar(spellId) then
-            name, _, icon = GetSpellInfo(spellId)
-            tinsert(spellList, {name = name, texture = icon, spell = true, id = spellId})
-        end
-    end
-
-    if addon.emergencySpells[addon.player.race] then
-        for spellId in pairs(addon.emergencySpells[addon.player.race]) do
-            -- Only add spells on action bars
-            if IsPlayerSpell(spellId) and IsOnBarOrSpecialBar(spellId) then
-                name, _, icon = GetSpellInfo(spellId)
-                tinsert(spellList, {name = name, texture = icon, spell = true, id = spellId})
-            end
-        end
-    end
-
-    if addon.emergencySpells[addon.player.class] then
-        for spellId in pairs(addon.emergencySpells[addon.player.class]) do
-            -- Only add spells on action bars
-            if IsPlayerSpell(spellId) and IsOnBarOrSpecialBar(spellId) then
-                name, _, icon = GetSpellInfo(spellId)
-                tinsert(spellList, {name = name, texture = icon, spell = true, id = spellId})
-            end
-        end
-    end
-
-    session.emergencySpells = spellList
-end
-
-function addon.tips:GetHighlight(name)
-    if not name then return end
-
-    local parent = type(name) == "string" and _G[name] or name
-    if not parent then return end
-
-    local key = type(name) == "string" and name or parent:GetName() or parent
-    if session.highlights[key] then return session.highlights[key] end
-
-    local textureName = type(key) == "string" and key .. "Emergency" or nil
-    local border = parent:CreateTexture(textureName, "ARTWORK")
-
-    border.animation = border:CreateAnimationGroup()
-    local animOut = border.animation:CreateAnimation("Alpha")
-    animOut:SetOrder(1)
-    animOut:SetDuration(0.2)
-    animOut:SetFromAlpha(1)
-    animOut:SetToAlpha(1)
-    animOut:SetStartDelay(0.2)
-
-    border:SetTexture(addon.ui.v2:GetTexture("configurator-option-hover"))
-    border:SetBlendMode("ADD")
-    local theme = addon.v2:GetTheme()
-    local borderColor = theme.borderColors and theme.borderColors.activeStepCheckboxChecked or
-                        addon.v2.themes["RXP Blue V2"].borderColors.activeStepCheckboxChecked
-    border:SetVertexColor(unpack(borderColor))
-    border:SetAlpha(0.5)
-    border:SetSize(68, 68)
-    border:SetPoint("CENTER", parent, "CENTER", 0, 1)
-    border:Hide()
-
-    session.highlights[key] = border
-
-    return border
-end
-
-function addon.tips:HighlightEmergencyItem()
-    local bagFrame, bagBorder, actionBarLookup, actionBarBorder
-
-    for _, item in ipairs(session.emergencyItems) do
-        bagFrame = item.bag and item.slot and
-                   addon.inventoryManager:GetBagItemFrame(item.bag, item.slot)
-        bagBorder = bagFrame and addon.tips:GetHighlight(bagFrame)
-
-        if bagBorder then
-            if bagFrame:IsShown() then
-                bagBorder:Show()
-                if addon.settings.profile.enableEmergencyIconAnimations and not bagBorder.animation:IsPlaying() then
-                    bagBorder.animation:Play()
-                end
-            else
-                bagBorder:Hide()
-            end
-        end
-
-        actionBarLookup = item.id and session.actionBarMap['item:' .. item.id]
-        if actionBarLookup then
-            actionBarBorder = addon.tips:GetHighlight(actionBarLookup.button)
-
-            if actionBarBorder then
-                actionBarBorder:Show()
-                if addon.settings.profile.enableEmergencyIconAnimations and not actionBarBorder.animation:IsPlaying() then
-                    actionBarBorder.animation:Play()
-                end
-            end
-
-        end
-    end
-
-end
-
-function addon.tips:HighlightEmergencySpell()
-    local actionBarLookup, actionBarBorder
-
-    for _, item in ipairs(session.emergencySpells) do
-
-        actionBarLookup = session.actionBarMap['spell:' .. item.id]
-        if actionBarLookup then
-            actionBarBorder = addon.tips:GetHighlight(actionBarLookup.button)
-
-            if actionBarBorder then
-                actionBarBorder:Show()
-                if addon.settings.profile.enableEmergencyIconAnimations and not actionBarBorder.animation:IsPlaying() then
-                    actionBarBorder.animation:Play()
-                end
-            end
-
-        end
-    end
-
-end
-
-function addon.tips:UNIT_INVENTORY_CHANGED(_, target)
-    if target ~= "player" then return end
-
-    self:CatalogInventory()
-end
-
-function addon.tips:BAG_NEW_ITEMS_UPDATED() self:CatalogInventory() end
-
--- Can be overriden by ElvUI, Bartender, Domino, etc
-local ActionBars = {'Action', 'MultiBarBottomLeft', 'MultiBarBottomRight', 'MultiBarRight', 'MultiBarLeft'}
-
-function addon.tips:CatalogActionBars()
-    session.actionBarMap = {}
-
-    if not _G.ActionButton_GetPagedID or _G.ActionButton_CalculateAction then return end
-
-    local button, slot, actionType, id, key
-
-    for _, barName in pairs(ActionBars) do
-        for i = 1, 12 do
-            button = _G[barName .. 'Button' .. i]
-            slot = _G.ActionButton_GetPagedID(button) or _G.ActionButton_CalculateAction(button) or
-                       button:GetAttribute('action')
-
-            if button and slot and HasAction(slot) then
-                actionType, id = GetActionInfo(slot)
-
-                if actionType == 'macro' then
-                    _, _, id = GetMacroSpell(id)
-                    if id then key = 'spell:' .. id end
-                elseif actionType == 'item' and id then
-                    key = 'item:' .. id
-                elseif actionType == 'spell' and id then
-                    key = 'spell:' .. id
-                else
-                    key = nil
-                    id = nil
-                end
-
-                if id and key then
-                    session.actionBarMap[key] = {button = barName .. 'Button' .. i, slot = slot}
-                end
-            end
-        end
-    end
-end
-
-function addon.tips:ACTIONBAR_SLOT_CHANGED() self:CatalogActionBars() end
+-- WF: removed the breath-timer handlers, the WorldFrame OnUpdate poll, the player-health check and the
+-- emergency item/spell catalogue and highlights (No combat logic, B18 C1/C2).
 
 function addon.tips:CreateDangerWarning()
     if self.dangerWarning then return end

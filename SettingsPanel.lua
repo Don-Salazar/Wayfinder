@@ -160,7 +160,7 @@ local settingsDBDefaults = {
         vendorTreasurePinScale = 0.8,
         distanceBetweenPins = 1,
         worldMapPinBackgroundOpacity = 0.35,
-        batchSize = 6,
+        -- WF: batchSize default removed with HSBatching.lua (B18 A3)
         updateFrequency = 75,
         phase = 6,
         xprate = 1,
@@ -186,11 +186,9 @@ local settingsDBDefaults = {
 
         --- UnitScan
         enableTargetFrame = true,
-        showTargetingOnProximity = unitscanEnabled,
-        soundOnFind = 3175,
-        soundOnFindChannel = 'Master',
+        -- WF: showTargetingOnProximity, soundOnFind, soundOnFindChannel and notifyOnRares removed with the
+        -- TargetUnit() proximity scan, their only user (B18 A1)
         scanForRares = true,
-        notifyOnRares = true,
         activeTargetScale = 1,
 
         enableAddonIncompatibilityCheck = true,
@@ -219,16 +217,11 @@ local settingsDBDefaults = {
         enableTips = true,
         enableItemUpgrades = true,
         enableItemUpgradesAH = true,
-        enableDrowningWarning = true,
-        enableDrowningWarningSound = true,
-        drowningThreshold = 0.2,
-        enableDrowningScreenFlash = true,
+        -- WF: drowning-warning defaults removed with the breath-timer tip (No combat logic, B18 C2)
         enableQuestChoiceRecommendation = true,
         enableQuestChoiceGoldRecommendation = true,
 
-        enableEmergencyActions = true,
-        emergencyThreshold = 0.2,
-        enableEmergencyIconAnimations = true,
+        -- WF: emergency-action defaults removed with the player-health tip (No combat logic, B18 C1)
 
         preLoadData = false,
 
@@ -496,9 +489,8 @@ function addon.settings:MigrateLegacySettings()
     -- As of 11.1.5 TargetUnit now fires ADDON_ACTION_FORBIDDEN at execution, rather than target matches
     -- Also applies to > 1.15.8
     -- Force disable setting, rather than gameVersion everywhere
-    if db.showTargetingOnProximity and not unitscanEnabled then
-        db.showTargetingOnProximity = false
-    end
+    -- WF: proximity targeting removed (B18 A1); clear the key an old profile may still hold
+    db.showTargetingOnProximity = nil
 
     if db.showDangerousUnitscan and not unitscanEnabled then
         db.showDangerousUnitscan = false
@@ -589,17 +581,7 @@ function addon.settings:CreateAceOptionsPanel()
         set = SetProfileOption,
         childGroups = "tab",
         args = {
-            discordButton = {
-                order = 1.0,
-                name = L("Join Discord"), -- TODO locale
-                type = "execute",
-                width = "normal",
-                func = function()
-                    addon.url = "https://discord.gg/restedxp"
-                    _G.StaticPopup_Show("RXP_Link")
-                    addon.url = nil
-                end
-            },
+            -- WF: removed the "Join Discord" button (RestedXP Discord link; no outbound links, B18 E1)
             -- WF: removed the "Import Guides" button (guide importer removed)
             feedbackButton = {
                 order = 1.1,
@@ -1741,23 +1723,7 @@ function addon.settings:CreateAceOptionsPanel()
                             end
                         end
                     },
-                    showTargetingOnProximity = {
-                        name = L("Only show when in range"),
-                        desc =
-                            L"Check if targets are nearby\nWarning: This relies on ADDON_ACTION_FORBIDDEN errors from TargetUnit() to function.",
-                        type = "toggle",
-                        width = optionsWidth * 2,
-                        order = 3.11,
-                        confirm = requiresReload,
-                        set = function(info, value)
-                            SetProfileOption(info, value)
-                            _G.ReloadUI()
-                        end,
-                        disabled = function()
-                            return not self.profile.enableTargetFrame
-                        end,
-                        hidden = not unitscanEnabled
-                    },
+                    -- WF: "Only show when in range" (TargetUnit() proximity scan) option removed (B18 A1)
                     enableEnemyTargeting = {
                         name = L("Show Enemy Target"), -- L("Scan Enemy Targets"), -- TODO locale
                         -- desc = L("Scan for enemy targets"),
@@ -1795,24 +1761,11 @@ function addon.settings:CreateAceOptionsPanel()
                         width = optionsWidth,
                         order = 3.20,
                         disabled = function()
-                            return not self.profile.enableTargetAutomation or
-                                       not self.profile.showTargetingOnProximity
+                            return not self.profile.enableTargetAutomation -- WF: proximity term removed (B18 A1)
                         end,
                         hidden = not unitscanEnabled
                     },
-                    notifyOnRares = {
-                        name = L("Notify on Rares"), -- TODO locale
-                        desc = L("Notify when a new rare is found"),
-                        type = "toggle",
-                        width = optionsWidth * 2,
-                        order = 3.21,
-                        disabled = function()
-                            return not self.profile.enableTargetAutomation or
-                                       not self.profile.showTargetingOnProximity or
-                                       not self.profile.scanForRares
-                        end,
-                        hidden = not unitscanEnabled
-                    },
+                    -- WF: notifyOnRares option removed; its only reader was the proximity scan (B18 A1)
                     hideActiveTargetsBackground = {
                         name = L("Hide Targets Background"),
                         desc = L("Make background transparent"),
@@ -1867,8 +1820,7 @@ function addon.settings:CreateAceOptionsPanel()
                         width = optionsWidth,
                         order = 4.1,
                         disabled = function()
-                            return not self.profile.enableTargetFrame or
-                                       not self.profile.showTargetingOnProximity
+                            return not self.profile.enableTargetFrame -- WF: proximity term removed (B18 A1)
                         end,
                         hidden = not unitscanEnabled
                     },
@@ -1880,67 +1832,11 @@ function addon.settings:CreateAceOptionsPanel()
                         width = optionsWidth * 2,
                         order = 4.2,
                         disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableDrowningWarning
+                            return not self.profile.enableTips -- WF: drowning-warning term removed (B18 C2)
                         end,
                         hidden = not unitscanEnabled
                     },
-                    soundOnFind = {
-                        name = L("Play Sound"), -- TODO locale
-                        desc = L("Sends sound on enemy target found"),
-                        type = "select",
-                        width = optionsWidth,
-                        order = 4.3,
-                        values = {
-                            ["none"] = L"none",
-                            [3175] = L"Map Ping",
-                            [11773] = L"War Drums",
-                            [8959] = L"Raid Warning",
-                            [5274] = L"Auction Window Open",
-                            [17318] = L"LFG Dungeon Ready",
-                            [9378] = L"PVP Flag Taken",
-                            [8960] = _G.QUEUED_STATUS_READY_CHECK_IN_PROGRESS,
-                            [9374] = L"PVP Flag Captured",
-                            [9375] = L"PVP Warning",
-                            [180461] = L"Fel Reaver"
-                        },
-                        disabled = function()
-                            return not self.profile.enableTargetAutomation or
-                                       not self.profile.showTargetingOnProximity
-                        end,
-                        hidden = not unitscanEnabled
-                    },
-                    soundOnFindChannel = {
-                        name = L("Sound Channel"), -- TODO locale
-                        type = "select",
-                        width = optionsWidth,
-                        order = 4.4,
-                        values = {
-                            ["Master"] = _G.MASTER,
-                            ["Music"] = _G.MUSIC_VOLUME,
-                            ["Ambience"] = _G.AMBIENCE_VOLUME,
-                            ["Dialog"] = _G.DIALOG_VOLUME
-                        },
-                        disabled = function()
-                            return not self.profile.enableTargetAutomation or
-                                       not self.profile.showTargetingOnProximity or
-                                       self.profile.soundOnFind == "none"
-                        end,
-                        hidden = not unitscanEnabled
-                    },
-                    testSoundOnFind = {
-                        name = _G.EVENTTRACE_BUTTON_PLAY,
-                        order = 4.5,
-                        type = 'execute',
-                        disabled = function()
-                            return self.profile.soundOnFind == "none"
-                        end,
-                        func = function()
-                            PlaySound(self.profile.soundOnFind,
-                                      self.profile.soundOnFindChannel)
-                        end,
-                        hidden = not unitscanEnabled
-                    }
+                    -- WF: soundOnFind, soundOnFindChannel and test button removed with the proximity scan (B18 A1)
                 }
             },
             levelTrackerFeatures = {
@@ -2306,108 +2202,7 @@ function addon.settings:CreateAceOptionsPanel()
                         order = 1.3,
                         hidden = addon.gameVersion > 40000
                     },
-                    drowningHeader = {
-                        name = _G.STRING_ENVIRONMENTAL_DAMAGE_DROWNING,
-                        type = "header",
-                        width = "full",
-                        order = 2.0
-                    },
-                    enableDrowningWarning = {
-                        name = L("Enable Warning"), -- TODO locale
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 2.1,
-                        disabled = function()
-                            return not self.profile.enableTips
-                        end
-                    },
-                    enableDrowningWarningSound = {
-                        name = L("Enable Warning Sound"), -- TODO locale
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 2.2,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableDrowningWarning
-                        end
-                    },
-                    drowningThreshold = {
-                        name = L("Threshold"), -- TODO locale
-                        type = "range",
-                        width = optionsWidth,
-                        order = 2.3,
-                        min = 0.05,
-                        max = 0.5,
-                        step = 0.05,
-                        isPercent = true,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableDrowningWarning
-                        end
-                    },
-                    enableDrowningScreenFlash = {
-                        name = _G.SHOW_FULLSCREEN_STATUS_TEXT,
-                        desc =
-                            L"Flashes the screen corners when in danger of drowning",
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 2.4,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableDrowningWarning
-                        end
-                    },
-                    emergencyHeader = {
-                        name = L("Emergency Actions"), -- TODO locale
-                        type = "header",
-                        width = "full",
-                        order = 3.0
-                    },
-                    enableEmergencyActions = {
-                        name = L("Enable Warning"), -- TODO locale
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 3.1,
-                        disabled = function()
-                            return not self.profile.enableTips
-                        end
-                    },
-                    emergencyThreshold = {
-                        name = L("Threshold"), -- TODO locale
-                        type = "range",
-                        width = optionsWidth,
-                        order = 3.2,
-                        min = 0.05,
-                        max = 0.40,
-                        step = 0.05,
-                        isPercent = true,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableEmergencyActions
-                        end
-                    },
-                    enableEmergencyIconAnimations = {
-                        name = L("Enable Animations"), -- TODO locale
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 3.3,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableEmergencyActions
-                        end
-                    },
-                    enableEmergencyScreenFlash = {
-                        name = _G.SHOW_FULLSCREEN_STATUS_TEXT,
-                        desc =
-                            L"Flashes the screen corners when an emergency action is recommended", -- TODO locale
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 3.4,
-                        disabled = function()
-                            return not self.profile.enableTips or
-                                       not self.profile.enableEmergencyActions
-                        end
-                    },
+                    -- WF: drowning and emergency-action options removed with those tips (No combat logic, B18 C1/C2)
                     dangerousMobsHeader = {
                         name = addon.gameVersion < 30000 and L("Dangerous Mobs Tracking") or L("Rare Tracker"),
                         type = "header",
@@ -3415,30 +3210,7 @@ function addon.settings:CreateAceOptionsPanel()
                             return not addon.settings.profile.debug
                         end,
                     },
-                    enableHSbatch = {
-                        name = L("Hearthstone batching"),
-                        desc =
-                            L"Enables the automation of the innkeeper prompt, where you can set your home location in the same server tick you're teleporting away",
-                        type = "toggle",
-                        width = optionsWidth,
-                        order = 1.4,
-                        hidden = addon.gameVersion > 50000
-                    },
-                    batchSize = {
-                        name = L("Batching window size (ms)"),
-                        desc =
-                            L"Adjusts the batching window tolerance, used for hearthstone batching. Increase this value if you're experiencing framerate drops when using your Hearthstone",
-                        type = "range",
-                        width = optionsWidth,
-                        order = 1.5,
-                        min = 1,
-                        max = 50,
-                        step = 0.500001,
-                        hidden = addon.gameVersion > 50000,
-                        disabled = function()
-                            return not addon.settings.profile.enableHSbatch
-                        end
-                    },
+                    -- WF: enableHSbatch and batchSize options removed; HSBatching.lua is no longer loaded (B18 A3/H1)
                     updateFrequency = {
                         name = L("Update Frequency (ms)"),
                         desc =
@@ -3739,16 +3511,7 @@ function addon.settings.ToggleActive()
     addon:CloseMenu()
 end
 
-local function CheckBuff(buffId)
-    local UnitBuff = _G.UnitBuff or addon.UnitBuff
-    local id = 0
-    local i = 1
-    while id do
-        id = select(10, UnitBuff("player", i))
-        if id == buffId then return true end
-        i = i + 1
-    end
-end
+-- WF: CheckBuff (player buff scan) removed; XP-rate detection reads no auras (No combat logic, B18 C7)
 
 local ITEM_RANGE = ITEM_LEVEL_RANGE_CURRENT:gsub("([%(%)])","%%%1")
 ITEM_RANGE = ITEM_RANGE:gsub("%%d","%(%%d+%)")
@@ -3759,10 +3522,8 @@ local tooltipTimer = 0
 local playerLevelCheck = 0
 
 function addon.GetXPBonuses(ignoreBuffs,playerLevel)
-    if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-        return
-    end
-    local calculatedRate = not ignoreBuffs and CheckBuff(377749) and 1.5 or 1.0 -- Joyous Journeys
+    -- WF: aura-secrecy guard and Joyous Journeys buff scan removed (B18 C7); buffs are no longer counted
+    local calculatedRate = 1.0
 
     local GetInventoryItemLink = GetInventoryItemLink
 
@@ -3778,8 +3539,9 @@ function addon.GetXPBonuses(ignoreBuffs,playerLevel)
 
     if addon.game == "RETAIL" then
         local cloakBonus = C_CurrencyInfo.GetCurrencyInfo(3001).quantity
-        local warModeBonus = (C_PvP.IsWarModeActive() or CheckBuff(282559) or CheckBuff(269083) or CheckBuff(289954)) and C_PvP.GetWarModeRewardBonus() or 0
-        local warbandBuff = C_UnitAuras.GetPlayerAuraBySpellID(430191)
+        -- WF: buff/aura reads removed from this Retail-only branch (B18 C7); war mode from C_PvP only
+        local warModeBonus = C_PvP.IsWarModeActive() and C_PvP.GetWarModeRewardBonus() or 0
+        local warbandBuff = nil
         --1,2: xp buff, 3: max level
         local warbandBonus = warbandBuff and warbandBuff.points[1] or 0
         local function AchComplete(id)
@@ -3805,8 +3567,7 @@ function addon.GetXPBonuses(ignoreBuffs,playerLevel)
                         0
             end
         end
-        local legionRemix = C_UnitAuras.GetPlayerAuraBySpellID(1232454)
-        legionRemix = legionRemix and legionRemix.points[10] or 0
+        local legionRemix = 0 -- WF: aura read removed (B18 C7)
         calculatedRate = calculatedRate + (cloakBonus + warModeBonus + warbandBonus + legionRemix)/100
         return calculatedRate
     elseif addon.game == "WOTLK" then
@@ -3896,15 +3657,11 @@ function addon.GetXPBonuses(ignoreBuffs,playerLevel)
 end
 
 function addon.settings:DetectXPRate(softUpdate)
-    if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-        C_Timer.After(5, function()
-            addon.settings:DetectXPRate(softUpdate)
-        end)
-        return
-    elseif not addon.settings.profile.enableAutomaticXpRate then
+    -- WF: aura-secrecy retry and the season buff scan removed (B18 C7); season comes from C_Seasons only
+    if not addon.settings.profile.enableAutomaticXpRate then
         return
     elseif addon.gameVersion < 20000 then
-        local season = addon.GetSeason() or CheckBuff(362859) and 1
+        local season = addon.GetSeason()
 
         --Anniversary realms
         local realm = C_Seasons and C_Seasons.HasActiveSeason() and C_Seasons.GetActiveSeason() or 0

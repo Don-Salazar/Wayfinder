@@ -51,23 +51,8 @@ else
     GetSpellInfo = _G.GetSpellInfo
 end
 
-local GetSpellCooldown = _G.GetSpellCooldown or function(spellIdentifier)
-    if C_Spell and C_Spell.GetSpellCooldown then
-        local info = C_Spell.GetSpellCooldown(spellIdentifier)
-        local enabled = info.isEnabled
-        local isActive = info.isActive
-        local startTime,duration = info.startTime, info.duration
-        if not isActive then
-            startTime = 0
-            duration = 0
-        elseif not enabled then
-            startTime = GetTime()
-            duration = 1e6
-        end
-        return startTime, duration, enabled, isActive
-    end
-end
-addon.GetSpellCooldown = GetSpellCooldown
+-- WF: addon.GetSpellCooldown wrapper removed; it branched on isActive/isEnabled (No combat logic, B18 C5).
+-- The item window now passes a duration object to the Cooldown widget (ActiveItemFrame.lua).
 
 local GetSpellTexture = C_Spell and C_Spell.GetSpellTexture or _G.GetSpellTexture
 local GetSpellSubtext = C_Spell and C_Spell.GetSpellSubtext or _G.GetSpellSubtext

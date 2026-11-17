@@ -13,7 +13,7 @@ local IsCurrentSpell = C_Spell and C_Spell.IsCurrentSpell or _G.IsCurrentSpell
 local IsSpellKnown = C_SpellBook and C_SpellBook.IsSpellKnown or _G.IsSpellKnown
 local IsPlayerSpell = C_Spell and C_Spell.IsPlayerSpell or _G.IsPlayerSpell
 local GetSpellInfo = C_Spell and C_Spell.GetSpellInfo and addon.GetSpellInfo or _G.GetSpellInfo
-local GetSpellCooldown = addon.GetSpellCooldown
+-- WF: GetSpellCooldown local removed with the .cooldown reads (B18 C4/C5)
 local UnitName = addon.GetUnitName
 local BANK_CONTAINER = _G.BANK_CONTAINER
 if not BANK_CONTAINER and Enum and Enum.BagIndex then
@@ -45,45 +45,8 @@ addon.GetFactionInfoByID = _G.GetFactionInfoByID or function(factionID)
     return name, description, standingID, barMin, barMax, barValue
 end
 
-if not (UnitAura and UnitBuff and UnitDebuff) then
-    addon.UnitAura = function(unitToken, index, filter)
-        if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-            return
-        end
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unitToken, index, filter);
-        if not auraData then
-            return nil;
-        end
-
-        return AuraUtil.UnpackAuraData(auraData);
-    end
-    addon.UnitBuff = function(unitToken, index, filter)
-        if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-            return
-        end
-        local auraData = C_UnitAuras.GetBuffDataByIndex(unitToken, index, filter);
-        if not auraData then
-            return nil;
-        end
-
-        return AuraUtil.UnpackAuraData(auraData);
-    end
-    addon.UnitDebuff = function(unitToken, index, filter)
-        if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-            return
-        end
-        local auraData = C_UnitAuras.GetDebuffDataByIndex(unitToken, index, filter);
-        if not auraData then
-            return nil;
-        end
-
-        return AuraUtil.UnpackAuraData(auraData);
-    end
-end
-
-local UnitAura = addon.UnitAura or _G.UnitAura
-local UnitBuff = addon.UnitBuff or _G.UnitBuff
-local UnitDebuff = addon.UnitDebuff or _G.UnitDebuff
+-- WF: addon.UnitAura/UnitBuff/UnitDebuff aura-scanning wrappers and locals removed; their users (.aura,
+-- wpbuff, the XP-rate buff scan) no longer read auras (No combat logic, B18 C6/C7/C8)
 
 local GetItemCount = C_Item and C_Item.GetItemCount or _G.GetItemCount
 
@@ -187,7 +150,7 @@ events.collecttoy = "TOYS_UPDATED"
 events.collectcurrency = "CURRENCY_DISPLAY_UPDATE"
 events.collectpet = {"COMPANION_LEARNED", "COMPANION_UNLEARNED", "COMPANION_UPDATE", "NEW_PET_ADDED"}
 events.tradeskill = events.train
-events.cooldown = {"SPELL_UPDATE_COOLDOWN","PLAYER_REGEN_ENABLED"}
+-- WF: events.cooldown removed; .cooldown is inert on Forever (B18 C4)
 events.mob = {"UNIT_TARGET","QUEST_TURNED_IN","QUEST_ACCEPTED"}
 events.unitscan = events.mob
 events.target = events.mob
@@ -308,7 +271,7 @@ local GetContainerNumFreeSlots =  C_Container and C_Container.GetContainerNumFre
 local GetContainerNumSlots =  C_Container and C_Container.GetContainerNumSlots or _G.GetContainerNumSlots
 local GetContainerItemID = C_Container and C_Container.GetContainerItemID or _G.GetContainerItemID
 local GetContainerItemInfo = C_Container and C_Container.GetContainerItemInfo or _G.GetContainerItemInfo
-local GetItemCooldown = addon.GetItemCooldown
+-- WF: GetItemCooldown local removed with the .cooldown reads (B18 C4/C5)
 
 addon.recentTurnIn = {}
 addon.recentAccept = {}
@@ -4886,7 +4849,8 @@ function addon.functions.cast(self, text, ...)
     local unit, _, id = ...
     local element = self.element
     local failed = element.failcheck and event == "UNIT_SPELLCAST_FAILED_QUIET"
-    if (event == "UNIT_SPELLCAST_SUCCEEDED" or failed) and unit == element.unit then
+    -- WF: react to the player's own casts only, never another unit's (No combat logic, B18 C10)
+    if (event == "UNIT_SPELLCAST_SUCCEEDED" or failed) and unit == "player" and unit == element.unit then
         for i,spellId in pairs(element.ids) do
             if id == spellId and (not failed or element.failcheck[i]) then
                 local icon = GetSpellTexture(id)
@@ -6361,61 +6325,8 @@ function addon.functions.cooldown(self, text, cooldownType, id, remaining,
         return element
     end
 
-    local element = self.element or self
-    local step = element.step
-    if not step.active or step.completed or addon.isHidden then
-        element.isActive = false
-        return
-    elseif not element.isActive then
-        element.isActive = true
-    elseif element.updateOnce and element.isActive then
-        return
-    end
-
-    local operator = element.operator
-    id = element.id
-    cooldownType = element.cooldownType
-    remaining = element.remaining
-
-    local start, duration = 0, 0
-    if cooldownType == "spell" then
-        start, duration = GetSpellCooldown(id)
-    elseif cooldownType == "item" then
-        start, duration = GetItemCooldown(id)
-    elseif cooldownType == "action" then
-        start, duration = GetActionCooldown(id)
-    elseif cooldownType == "pet" then
-        start, duration = GetPetActionCooldown(id)
-    elseif cooldownType == "inventory" then
-        start, duration = GetInventoryItemCooldown("player", id)
-    end
-
-    if addon.IsSecretValue(start) or addon.IsSecretValue(duration)
-      or not (start and duration) then
-        return
-    end
-
-    local endTime = start + duration
-
-    -- Astral recall:
-    if class == "SHAMAN" and IsPlayerSpell(556) and id == 6948 and cooldownType ==
-        "item" then
-        local arStart, arDuration = GetSpellCooldown(556)
-        if arStart and arDuration and not addon.IsSecretValue(arStart) and
-            not addon.IsSecretValue(arDuration) then
-            endTime = math.min(endTime, arStart + arDuration)
-        end
-    end
-
-    local target = endTime - remaining
-
-    if GetTime() * operator < target * operator then
-        addon.updateSteps = true
-        step.completed = true
-        element.isActive = false
-    elseif target > 0 and not element.updateOnce then
-        addon.ScheduleTask(target + 0.5, element)
-    end
+    -- WF: inert (No combat logic, B18 C4). The line still parses and shows its text, but no cooldown is read
+    -- and the step is never completed or skipped from cooldown state; it completes by its other elements.
 end
 
 events.logout = "PLAYER_CAMPING"
@@ -6703,23 +6614,9 @@ end
 --args is a string that can be referenced by self.args
 
 
+-- WF: ironchain no longer reads vehicle auras; returns nil so the waypoint keeps normal priority
+-- (No combat logic, B18 C8). No guide loaded on Forever uses it.
 function addon.functions.ironchain()
-    local id
-    local UnitAura = _G.UnitAura
-    if not UnitAura then
-        UnitAura = function(unitToken, index, filter)
-            local auraData = C_UnitAuras.GetAuraDataByIndex(unitToken, index, filter);
-            if not auraData then
-                return nil;
-            end
-
-            return AuraUtil.UnpackAuraData(auraData);
-	    end
-    end
-    for i = 1, 5 do
-        _, id = UnitAura("vehicle", i)
-        if id == 133273 then return true end
-    end
 end
 
 function addon.functions.bombdispenser() return GetItemCount(40686) > 0 end
@@ -6766,17 +6663,9 @@ function addon.functions.wptimer(self)
     return not self.state
 end
 
-function addon.functions.wpbuff(self)
-    if self.buff == nil then
-        self.buff = tonumber(self.args)
-        self.state = self.buff and self.buff > 0
-        self.buff = self.buff and math.abs(self.buff)
-    end
-    for i = 1, 32 do
-        local _, _, _, _, _, _, _, _, _, id = UnitAura("player", i)
-        if id == self.buff then return self.state end
-    end
-    return not self.state
+-- WF: wpbuff no longer reads player auras; returns nil so the waypoint keeps normal priority
+-- (No combat logic, B18 C8). No guide loaded on Forever uses it.
+function addon.functions.wpbuff()
 end
 
 function addon.functions.dmf(self, ...)
@@ -7857,7 +7746,7 @@ function addon.functions.mirrorquest(self, text, src, ...)
     end
 end
 
-events.aura = "UNIT_AURA"
+-- WF: events.aura (UNIT_AURA) removed; .aura is inert on Forever (B18 C6)
 function addon.functions.aura(self, ...)
     if type(self) == "string" then
         local text, id, duration, target = ...
@@ -7890,59 +7779,8 @@ function addon.functions.aura(self, ...)
         element.id = id
         return element
     end
-    local element = self.element
-    local step = element.step
-    local event, target = ...
-    if C_Secrets and C_Secrets.ShouldAurasBeSecret() then
-        return
-    end
-    if (target == "player" or event ~= "UNIT_AURA") and step.active then
-        local buffFound = false
-        local partialMatch = false
-        local function CheckBuffs(func)
-            if addon.gameVersion >= 120000 and InCombatLockdown() then
-                return
-            end
-
-            for i = 1, 32 do
-                local name, icon, count, _, duration, expirationTime, _, _, _, spellId = func(element.unit, i)
-                if spellId == element.id then
-                    partialMatch = true
-                    local remaining = expirationTime - GetTime()
-                    element.expirationTime = expirationTime
-                    --print(remaining,duration,expirationTime)
-                    if (not element.stacks or count >= element.stacks) and (remaining > element.duration or (duration == expirationTime and duration == 0)) then
-                        element.icon = "|T" .. icon .. ":0|t"
-                        buffFound = true
-                        break
-                    end
-                end
-            end
-        end
-        CheckBuffs(UnitDebuff)
-        CheckBuffs(UnitBuff)
-        if not partialMatch then
-            element.expirationTime = 0
-        end
-
-        local t = GetTime()
-        if event == "UNIT_AURA" and element.duration > 0 and element.expirationTime > 0 and element.endTime < t then
-            local remaining = element.expirationTime - t
-            element.endTime = t + remaining-element.duration + 0.5
-            addon.ScheduleTask(element.endTime, element)
-            element.frame = self
-        end
-        if buffFound == not element.reverse then
-            if element.text then
-                addon.SetElementComplete(self)
-            else
-                step.completed = true
-                addon.updateSteps = true
-            end
-        elseif not element.textOnly then
-            addon.SetElementIncomplete(self)
-        end
-    end
+    -- WF: inert (No combat logic, B18 C6). No aura is read. A line with text stays an unticked checkbox the
+    -- player ticks by hand; a line without text is text-only and never skips the step.
 end
 
 events.equip = "PLAYER_EQUIPMENT_CHANGED"

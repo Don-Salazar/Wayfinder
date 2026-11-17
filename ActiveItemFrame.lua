@@ -7,7 +7,7 @@ local BackdropTemplate = BackdropTemplateMixin and "BackdropTemplate"
 local GetContainerNumSlots = C_Container and C_Container.GetContainerNumSlots or _G.GetContainerNumSlots
 local GetContainerItemID = C_Container and C_Container.GetContainerItemID or _G.GetContainerItemID
 local GetContainerItemInfo = C_Container and C_Container.GetContainerItemInfo or _G.GetContainerItemInfo
-local GetContainerItemCooldown = C_Container and C_Container.GetContainerItemCooldown or _G.GetContainerItemCooldown
+-- WF: GetContainerItemCooldown local dropped with the bag-scan cooldown fallback (B18 C5)
 local GameTooltip = _G.GameTooltip
 local PickupContainerItem = C_Container and C_Container.PickupContainerItem or _G.PickupContainerItem
 local GetSpellInfo = C_Spell and C_Spell.GetSpellInfo and addon.GetSpellInfo or _G.GetSpellInfo
@@ -19,28 +19,11 @@ local GetSpellInfo = C_Spell and C_Spell.GetSpellInfo and addon.GetSpellInfo or 
 local GetItemInfo = C_Item and C_Item.GetItemInfo or _G.GetItemInfo
 --local GetItemCount = C_Item and C_Item.GetItemCount or _G.GetItemCount
 
--- start, duration, enabled, modRate = GetSpellCooldown(spell)
-local GetSpellCooldown = addon.GetSpellCooldown
-
-local GetItemCooldown = (C_Container and C_Container.GetItemCooldown or _G.GetItemCooldown) or function(searchItemID)
-	local searchItemName = GetItemInfo(searchItemID);
-	if not searchItemName then return end
-    local n = _G.KEYRING_CONTAINER or _G.BACKPACK_CONTAINER
-	for bagID = n, _G.NUM_BAG_FRAMES do
-		local slots = GetContainerNumSlots(bagID) or 0;
-		for slot = 1, slots do
-			local itemInfo = GetContainerItemInfo(bagID, slot);
-			if itemInfo and itemInfo.itemID then
-				local startTime, duration, isEnabled = GetContainerItemCooldown(bagID, slot);
-				if searchItemID == itemInfo.itemID and startTime ~= nil and startTime > 0 then
-                    return startTime, duration, isEnabled;
-				end
-			end
-		end
-	end
-end
-
-addon.GetItemCooldown = GetItemCooldown
+-- WF: display-only cooldowns (No combat logic, B18 C3/C5; DESIGN 5.6). Blizzard's values go straight to the
+-- Cooldown widget: spells as a duration object, items as start/duration. No comparison, arithmetic or branch
+-- on them; the bag-scanning fallback (which compared start times) and addon.GetItemCooldown are removed.
+local GetSpellCooldownDuration = C_Spell and C_Spell.GetSpellCooldownDuration
+local GetItemCooldown = C_Container and C_Container.GetItemCooldown or _G.GetItemCooldown
 
 local function GetActiveItemList(ref)
     local itemList = {}
@@ -178,19 +161,15 @@ local function UpdateCooldowns()
     for i, btn in ipairs(buttonList) do
         local id = btn.itemId
         if id and btn:IsShown() then
-            local start,duration
+            -- WF: pass-through only; the branches test the button kind and whether the API exists, never the
+            -- values. pcall contains a widget error (e.g. nil for an unknown id); its result is not inspected.
             if btn.spell then
-                start,duration = GetSpellCooldown(id)
-            else
-                start,duration = GetItemCooldown(id)
-            end
-            --local remaining, cd
-            if not (addon.IsSecretValue(start) or addon.IsSecretValue(duration)) and start and duration then
-                --remaining = start + duration - GetTime()
-                --cd = FormatCooldown(start,remaining,enable)
-                btn.cooldown:SetCooldown(start,duration)
-            else
-                btn.cooldown:Clear()
+                if GetSpellCooldownDuration and btn.cooldown.SetCooldownFromDurationObject then
+                    pcall(btn.cooldown.SetCooldownFromDurationObject, btn.cooldown, GetSpellCooldownDuration(id))
+                end
+            elseif GetItemCooldown then
+                local start, duration = GetItemCooldown(id)
+                pcall(btn.cooldown.SetCooldown, btn.cooldown, start, duration)
             end
             -- print(cd)
             --[[if cd ~= btn.cd then

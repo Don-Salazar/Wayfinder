@@ -597,7 +597,7 @@ Arrow data
     f:SetLayout("Fill")
     f:EnableResize(true)
     f.statustext:GetParent():Hide()
-    f:SetTitle(L("RestedXP Feedback Form"))
+    f:SetTitle(L("Feedback Form")) -- WF: neutral title, the form is not RestedXP's (B18 E1)
 
     f.scrollContainer = AceGUI:Create("ScrollFrame")
     f.scrollContainer:SetLayout("Fill")
@@ -608,7 +608,8 @@ Arrow data
     f.frame:SetBackdropColor(unpack(addon.colors.background))
 
     local editbox = AceGUI:Create("MultiLineEditBox")
-    editbox:SetLabel(L("Join our support discord at discord.gg/RestedXP and copy paste this form into #bug-report"))
+    -- WF: RestedXP Discord link removed; neutral copy-only instruction (no outbound links, B18 E1)
+    editbox:SetLabel(L("Copy this text and include it when you report the problem."))
     editbox:SetFullWidth(true)
     editbox:SetFullHeight(true)
     editbox:SetText(content)

@@ -49,8 +49,7 @@ L["Flying to %s ETA %s"] = "%s로 비행 중, 예상 도착 시간: %s"
 L["Describe your issue:"] = "문제를 설명하세요:"
 L["Do not edit below this line"] = "이 라인 아래는 수정하지 마세요"
 L["RestedXP Feedback Form"] = "RestedXP 피드백 양식"
-L["Join our support discord at discord.gg/RestedXP and copy paste this form into #bug-report"] =
-   "discord.gg/RestedXP의 지원 디스코드에 가입하고 이 양식을 #bug-report에 복사 붙여넣기하세요"
+-- WF: removed the translation of the RestedXP Discord bug-report label (no outbound links, B18 E1)
 L["day"] = "일"
 L["days"] = "일"
 L["hour"] = "시간"

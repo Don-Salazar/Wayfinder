@@ -46,7 +46,7 @@ L["Flying to %s ETA %s"] = "正在飞往 %s 预计到达时间于 %s"
 L["Describe your issue:"] = "请描述你的问题："
 L["Do not edit below this line"] = "请勿编辑此行以下内容"
 L["RestedXP Feedback Form"] = "RestedXP 反馈表单"
-L["Join our support discord at discord.gg/RestedXP and copy paste this form into #bug-report"] = "加入我们的 Discord 支持服务器: discord.gg/RestedXP 并将此表单粘贴到 #bug-report 频道"
+-- WF: removed the translation of the RestedXP Discord bug-report label (no outbound links, B18 E1)
 L["day"] = "天"
 L["days"] = "天"
 L["hour"] = "小时"

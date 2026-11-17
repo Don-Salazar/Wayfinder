@@ -49,7 +49,7 @@ L["Flying to %s ETA %s"] = "Fliegen nach %s verbleibende Zeit: %s"
 L["Describe your issue:"] = "Beschreib dein Problem"
 L["Do not edit below this line"] = "Bitte hier drunter nichts bearbeiten"
 L["RestedXP Feedback Form"] = "RestedXP Feedback Formular"
-L["Join our support discord at discord.gg/RestedXP and copy paste this form into #bug-report"] = "Tritt unserem discord bei unter discord.gg/RestedXP und kopier dieses Formular in #bug-report"
+-- WF: removed the translation of the RestedXP Discord bug-report label (no outbound links, B18 E1)
 L["day"] = "Tag"
 L["days"] = "Tage"
 L["hour"] = "Stunde"

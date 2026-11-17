@@ -15,7 +15,8 @@
     "SavedVariablesPerCharacter": "inherit"
   },
   "drop": [
-    { "path": "CptStadicsVendorTreasures.lua", "reason": "Cpt. Stadics' Vendor Treasures is CC BY-NC 3.0 third-party Classic vendor data; owner decided 2026-11-17 not to ship it. Every caller already checks addon.VendorTreasures." }
+    { "path": "CptStadicsVendorTreasures.lua", "reason": "Cpt. Stadics' Vendor Treasures is CC BY-NC 3.0 third-party Classic vendor data; owner decided 2026-11-17 not to ship it. Every caller already checks addon.VendorTreasures." },
+    { "path": "HSBatching.lua", "reason": "Hearthstone batching hooks item-use and spell-cast functions at file load and calls ConfirmBinder() from an OnUpdate script without a player click (UPSTREAM_MAP B18 A3/H1); owner approved removal 2026-11-17. Its options and batchSize default are removed from SettingsPanel.lua; addon.isCastingHS is now always nil (read nil-safely in Targeting.lua)." }
   ],
   "insert": [
     { "path": "Modules/MenuCompat.lua", "after": "Communications.lua", "reason": "Menu adapter replacing LibUIDropDownMenu (GPL); loads before RXPGuides.lua, whose addon:ShowMenu/CloseMenu call it." },
