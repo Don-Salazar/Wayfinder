@@ -3,7 +3,8 @@
   <Script file="compatibility.lua"/>
   <Script file="LibStub\LibStub.lua"/>
   <Script file="CallbackHandler-1.0\CallbackHandler-1.0.lua"/>
-  <Include file="mainline\LibUIDropDownMenu\LibUIDropDownMenu.xml"/>
+  <!-- WF: LibUIDropDownMenu (GPL) not loaded; menus use the client's API via Modules/MenuCompat.lua -->
+  <!-- <Include file="mainline\LibUIDropDownMenu\LibUIDropDownMenu.xml"/> -->
   <Include file="AceEvent-3.0\AceEvent-3.0.xml"/>
   <Script file="AceDB-3.0\AceDB-3.0.lua"/>
   <Include file="AceAddon-3.0\AceAddon-3.0.xml"/>
@@ -21,8 +22,10 @@
   <Script file="HereBeDragons\HereBeDragons-Pins-2.0.lua"/>
   <!-- WF: plc\base64.lua not loaded; its only caller was the removed encrypted guide import -->
   <!-- <Script file="plc\base64.lua"/> -->
-  <Include file="LibDeflate\lib.xml"/>
+  <!-- WF: LibDeflate (licence history unclear) not loaded; step-sync uses C_EncodingUtil when present -->
+  <!-- <Include file="LibDeflate\lib.xml"/> -->
   <Include file="LibCandyBar-3.0\lib.xml"/>
-  <Script file="LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
-  <Include file="LibDBIcon-1.0\lib.xml"/>
+  <!-- WF: LibDataBroker-1.1 (no licence statement) and LibDBIcon-1.0 (needs it) not loaded; see Modules/MinimapButton.lua -->
+  <!-- <Script file="LibDataBroker-1.1\LibDataBroker-1.1.lua"/> -->
+  <!-- <Include file="LibDBIcon-1.0\lib.xml"/> -->
 </Ui>

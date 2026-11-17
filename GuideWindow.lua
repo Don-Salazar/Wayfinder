@@ -5,7 +5,10 @@ local _, class = UnitClass("player")
 local _G = _G
 local fmt,tinsert = string.format, table.insert
 local AceGUI = LibStub("AceGUI-3.0")
-local LibDeflate = LibStub("LibDeflate")
+-- WF: LibDeflate not loaded; step-sync uses C_EncodingUtil when the client has it, else the payload is off
+local EncodingUtil = _G.C_EncodingUtil
+local canEncode = EncodingUtil and EncodingUtil.CompressString and EncodingUtil.DecompressString and
+                      EncodingUtil.EncodeBase64 and EncodingUtil.DecodeBase64 and true or false
 
 -- Alias addon.locale.Get
 local L = addon.locale.Get
@@ -3160,7 +3163,11 @@ function addon.v2:EncodePlayerActiveSteps(payload)
         end
     end
 
-    return LibDeflate:EncodeForWoWChatChannel(LibDeflate:CompressDeflate(addon.comms:Serialize(trimmedPayload)))
+    if not canEncode then return end -- WF: C_EncodingUtil (compress + base64) replaces LibDeflate; nil = no payload
+    local ok, encoded = pcall(function()
+        return EncodingUtil.EncodeBase64(EncodingUtil.CompressString(addon.comms:Serialize(trimmedPayload)))
+    end)
+    if ok and type(encoded) == "string" then return encoded end
 end
 
 function addon.v2:IsValidActiveStepsPayload(steps)
@@ -3206,11 +3213,11 @@ end
 function addon.v2:DecodePlayerActiveSteps(encodedPayload)
     if type(encodedPayload) ~= "string" then return end
 
-    local decoded = LibDeflate:DecodeForWoWChatChannel(encodedPayload)
-    if not decoded then return end
-
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then return end
+    if not canEncode then return end -- WF: decode with C_EncodingUtil instead of LibDeflate; bad input returns nil
+    local ok, decompressed = pcall(function()
+        return EncodingUtil.DecompressString(EncodingUtil.DecodeBase64(encodedPayload))
+    end)
+    if not ok or type(decompressed) ~= "string" then return end
 
     local deserializeResult, deserialized = addon.comms:Deserialize(decompressed)
     if not deserializeResult or not self:IsValidActiveStepsPayload(deserialized) then return end

@@ -2765,12 +2765,11 @@ end
 
 RXP = addon -- debug purposes
 
-local LibDD = LibStub:GetLibrary("LibUIDropDownMenu-4.0", true)
+-- WF: LibUIDropDownMenu (GPL) is not loaded; menus without EasyMenu go through Modules/MenuCompat.lua
 
 function addon:CloseMenu()
+    if addon.MenuCompat then addon.MenuCompat.Close() end -- WF: closes MenuUtil menus too; replaces LibDD:CloseDropDownMenus()
     if _G.CloseDropDownMenus then return _G.CloseDropDownMenus() end
-
-    if LibDD then LibDD:CloseDropDownMenus() end
 end
 
 function addon:ShowMenu(menu, menuFrame, anchor, x, y, displayMode, autoHideDelay)
@@ -2798,16 +2797,8 @@ function addon:ShowMenu(menu, menuFrame, anchor, x, y, displayMode, autoHideDela
         end
 
         if v2GuideWindow then addon.v2:HookMenuSubmenus("DropDownList") end
-    else
-        if hadV2MenuTheme then addon.v2:UpdateMenuTheme(_G.L_DropDownList1, false) end
-
-        LibDD:EasyMenu(menu, menuFrame, anchor, x, y, displayMode, autoHideDelay)
-
-        if menuFrame.rxpV2MenuTheme then
-            addon.v2:UpdateMenuTheme(_G.L_DropDownList1, menuFrame.rxpV2MenuTheme)
-        end
-
-        if v2GuideWindow then addon.v2:HookMenuSubmenus("L_DropDownList") end
+    elseif addon.MenuCompat then -- WF: no EasyMenu global; MenuCompat (MenuUtil / UIDropDownMenu_*) replaces LibDD:EasyMenu
+        addon.MenuCompat.Show(menu, menuFrame, anchor, x, y, displayMode, autoHideDelay)
     end
 end
 

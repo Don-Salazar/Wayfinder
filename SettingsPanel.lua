@@ -3,8 +3,7 @@ local addonName, addon = ...
 local _G = _G
 
 local AceConfig = LibStub("AceConfig-3.0")
-local LibDBIcon = LibStub("LibDBIcon-1.0")
-local LibDataBroker = LibStub("LibDataBroker-1.1")
+-- WF: LibDBIcon-1.0 and LibDataBroker-1.1 are not loaded; Modules/MinimapButton.lua replaces them
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local EasyMenu = function(...) addon:ShowMenu(...) end
 
@@ -711,10 +710,10 @@ function addon.settings:CreateAceOptionsPanel()
                         order = 2.1,
                         set = function(info, value)
                             SetProfileOption(info, value)
-                            if value then
-                                LibDBIcon:Show(addonName)
-                            else
-                                LibDBIcon:Hide(addonName)
+                            if value then -- WF: own minimap button instead of LibDBIcon:Show/Hide
+                                addon.settings:UpdateMinimapButton()
+                            elseif addon.MinimapButton then
+                                addon.MinimapButton:Hide()
                             end
                         end
                     },
@@ -3690,7 +3689,7 @@ function addon.settings:UpdateMinimapButton()
         icon = addon.ui.v2:GetTexture("rxp-minimap-icon")
     end
 
-    local minimapButton = LibDataBroker:NewDataObject(addonName, {
+    local minimapButton = ({ -- WF: plain table for Modules/MinimapButton.lua, was LibDataBroker:NewDataObject
         type = "data source",
         label = addonName,
         icon = icon,
@@ -3710,7 +3709,7 @@ function addon.settings:UpdateMinimapButton()
         end
     })
 
-    LibDBIcon:Register(addonName, minimapButton, self.profile.minimap);
+    if addon.MinimapButton then addon.MinimapButton:Register(minimapButton, self.profile.minimap) end -- WF: was LibDBIcon:Register
 end
 
 function addon.settings.ToggleActive()

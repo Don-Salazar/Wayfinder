@@ -65,6 +65,11 @@ local wow_read_globals = {
   "GetMacroIndexByName", "GetNumMacros", "MAX_ACCOUNT_MACROS",
   "MAX_CHARACTER_MACROS",
   "Settings", "SlashCmdList",
+  -- Modules/MinimapButton.lua
+  "Minimap", "GameTooltip", "GetCursorPosition",
+  -- Modules/MenuCompat.lua (read through _G and feature-detected; any may be nil)
+  "Menu", "MenuUtil", "MenuResponse", "EasyMenu", "CloseDropDownMenus",
+  "UIDropDownMenu_Initialize", "UIDropDownMenu_AddButton", "ToggleDropDownMenu",
 }
 stds.wow = { read_globals = wow_read_globals }
 

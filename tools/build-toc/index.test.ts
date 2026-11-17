@@ -57,6 +57,41 @@ test("buildToc: drop is case- and slash-insensitive and must match a kept line",
   assert.throws(() => buildToc(UP, cfg({ drop: [{ path: "gone.lua", reason: "x" }] }), SHA), /gone\.lua/);
 });
 
+test("buildToc: insert places our files after a kept line, in config order", () => {
+  const r = buildToc(
+    UP,
+    cfg({
+      insert: [
+        { path: "Modules/A.lua", after: "core.LUA", reason: "a" },
+        { path: "Modules/B.lua", after: "Core.lua", reason: "b" },
+        { path: "Modules/C.lua", after: "modules\\b.lua", reason: "c" },
+        { path: "Modules/Z.lua", after: "Std.lua", reason: "z" },
+      ],
+    }),
+    SHA,
+  );
+  assert.deepEqual(r.files, ["libs\\embeds_Mainline.xml", "Core.lua", "Modules/A.lua", "Modules/B.lua", "Modules/C.lua", "DB/forever.xml", "Talents.lua", "Std.lua", "Modules/Z.lua"]);
+  assert.deepEqual(r.inserted.map((i) => i.path), ["Modules/A.lua", "Modules/B.lua", "Modules/C.lua", "Modules/Z.lua"]);
+  assert.ok(r.text.includes("Core.lua\nModules/A.lua\nModules/B.lua\nModules/C.lua\nDB/forever.xml\n"));
+  // Anchor on a dropped line, a line not loading on camelot, or a missing file: stale.
+  assert.throws(() => buildToc(UP, cfg({ drop: [{ path: "Core.lua", reason: "x" }], insert: [{ path: "M.lua", after: "Core.lua", reason: "x" }] }), SHA), /not a kept camelot line/);
+  assert.throws(() => buildToc(UP, cfg({ insert: [{ path: "M.lua", after: "Mists.lua", reason: "x" }] }), SHA), /Mists\.lua/);
+  // Inserting a file the TOC already loads.
+  assert.throws(() => buildToc(UP, cfg({ insert: [{ path: "talents.lua", after: "Core.lua", reason: "x" }] }), SHA), /already a line/);
+  // No insert key at all is fine.
+  assert.deepEqual(buildToc(UP, cfg(), SHA).inserted, []);
+});
+
+test("validateConfig: insert entries", () => {
+  assert.doesNotThrow(() => validateConfig(cfg({ insert: [{ path: "M.lua", after: "Core.lua", reason: "r" }] })));
+  assert.throws(() => validateConfig(cfg({ insert: [{ path: "M.lua", after: "Core.lua", reason: "" }] })), /reason/);
+  assert.throws(() => validateConfig(cfg({ insert: [{ path: "M.lua", after: " ", reason: "r" }] })), /after/);
+  assert.throws(() => validateConfig(cfg({ insert: [{ path: "M.lua", after: "A.lua", reason: "r" }, { path: "m.LUA", after: "B.lua", reason: "r" }] })), /twice/);
+  assert.throws(() => validateConfig(cfg({ drop: [{ path: "M.lua", reason: "r" }], insert: [{ path: "M.lua", after: "A.lua", reason: "r" }] })), /drop/);
+  assert.throws(() => validateConfig(cfg({ insert: [{ path: "M.lua", after: "m.lua", reason: "r" }] })), /itself/);
+  assert.throws(() => validateConfig(cfg({ insert: {} as unknown as [] })), /array/);
+});
+
 test("buildToc: inherit needs the upstream line; risky directives fail", () => {
   const plain = cfg({ header: { Interface: "16001" } });
   assert.throws(() => buildToc(UP, cfg({ header: { Interface: "16001", OptionalDeps: "inherit" } }), SHA), /OptionalDeps/);

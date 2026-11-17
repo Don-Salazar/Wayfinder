@@ -4,7 +4,8 @@
 // sync). Instead this tool keeps, in order, the file lines of RXPGuides.toc
 // that load for one game type (camelot = WoW: Forever), writes them without
 // their [AllowLoadGameType ...] tag, removes the lines listed under "drop" in
-// config.json, and puts our own header on top.
+// config.json, adds our own files listed under "insert" (each right after a
+// named kept line), and puts our own header on top.
 //
 //   npm run build:toc                 write Wayfinder.toc
 //   npm run check:toc                 exit 1 if Wayfinder.toc on disk is stale
@@ -29,6 +30,13 @@ export interface DropEntry {
   reason: string;
 }
 
+/** One of our files, written right after the kept line "after". */
+export interface InsertEntry {
+  path: string;
+  after: string;
+  reason: string;
+}
+
 export interface TocConfig {
   upstreamToc: string;
   output: string;
@@ -36,6 +44,8 @@ export interface TocConfig {
   gameType: GameType;
   header: Record<string, string>;
   drop: DropEntry[];
+  /** Optional; entries apply in order, so one may anchor on a file inserted before it. */
+  insert?: InsertEntry[];
   ship: { extraFiles: string[]; assetDirs: string[] };
 }
 
@@ -68,6 +78,18 @@ export function validateConfig(c: TocConfig): void {
     if (seen.has(key)) err(`drop "${d.path}" is listed twice`);
     seen.add(key);
   }
+  if (c.insert !== undefined && !Array.isArray(c.insert)) err(`"insert" must be an array`);
+  const inserted = new Set<string>();
+  for (const i of c.insert ?? []) {
+    if (!i || typeof i.path !== "string" || !i.path.trim()) err(`every insert entry needs a "path"`);
+    if (typeof i.after !== "string" || !i.after.trim()) err(`insert "${i.path}" needs an "after" line`);
+    if (typeof i.reason !== "string" || !i.reason.trim()) err(`insert "${i.path}" needs a non-empty "reason"`);
+    const key = pathKey(i.path);
+    if (inserted.has(key)) err(`insert "${i.path}" is listed twice`);
+    if (seen.has(key)) err(`insert "${i.path}" is also in "drop"`);
+    if (key === pathKey(i.after)) err(`insert "${i.path}" cannot come after itself`);
+    inserted.add(key);
+  }
   if (!c.ship || !Array.isArray(c.ship.extraFiles) || !Array.isArray(c.ship.assetDirs)) err(`"ship" needs "extraFiles" and "assetDirs" arrays`);
 }
 
@@ -89,6 +111,7 @@ export interface BuildResult {
   /** File lines written, in order. */
   files: string[];
   dropped: DropEntry[];
+  inserted: InsertEntry[];
 }
 
 const STRIPPABLE = new Set(["allowloadgametype", "excludeloadgametype"]);
@@ -135,11 +158,26 @@ export function buildToc(upstreamText: string, config: TocConfig, commit: string
   const stale = [...drops.values()].filter((d) => !d.used).map((d) => d.entry.path);
   if (stale.length) throw new Error(`build-toc: drop entr${stale.length === 1 ? "y matches" : "ies match"} no ${config.gameType} line of ${config.upstreamToc} (stale after an upstream sync?): ${stale.join(", ")}`);
 
+  // Inserts: each goes after its anchor, and after earlier inserts on the same anchor (config order).
+  const inserted: InsertEntry[] = [];
+  const lastOnAnchor = new Map<string, string>();
+  for (const ins of config.insert ?? []) {
+    const key = pathKey(ins.path);
+    if (files.some((f) => pathKey(f) === key)) throw new Error(`build-toc: insert "${ins.path}" is already a line of the TOC`);
+    const anchorKey = pathKey(ins.after);
+    const target = lastOnAnchor.get(anchorKey) ?? anchorKey;
+    const at = files.findIndex((f) => pathKey(f) === target);
+    if (at < 0) throw new Error(`build-toc: insert "${ins.path}" anchors on "${ins.after}", which is not a kept ${config.gameType} line (stale after an upstream sync or a drop?)`);
+    files.splice(at + 1, 0, ins.path);
+    lastOnAnchor.set(anchorKey, key);
+    inserted.push(ins);
+  }
+
   const comment =
     `# GENERATED FILE - do not edit. Built by tools/build-toc from ${config.upstreamToc} ` +
     `(RestedXP upstream commit ${commit}). Edit tools/build-toc/config.json and run "npm run build:toc".`;
   const text = [comment, ...header, "", ...files, ""].join("\n");
-  return { text, files, dropped };
+  return { text, files, dropped, inserted };
 }
 
 /** Same content regardless of line endings (git autocrlf may rewrite them on checkout). */
@@ -209,13 +247,14 @@ function main(argv: string[]): number {
       console.error(`FAIL: ${config.output} differs from what tools/build-toc would generate. Run "npm run build:toc" (and do not edit ${config.output} by hand).`);
       return 1;
     }
-    console.log(`OK: ${config.output} is up to date (${built.files.length} file lines, ${built.dropped.length} dropped).`);
+    console.log(`OK: ${config.output} is up to date (${built.files.length} file lines, ${built.dropped.length} dropped, ${built.inserted.length} inserted).`);
     return 0;
   }
 
   writeFileSync(outPath, built.text);
-  console.log(`wrote ${config.output}: ${built.files.length} file lines for ${config.gameType} from ${config.upstreamToc}, ${built.dropped.length} dropped.`);
+  console.log(`wrote ${config.output}: ${built.files.length} file lines for ${config.gameType} from ${config.upstreamToc}, ${built.dropped.length} dropped, ${built.inserted.length} inserted.`);
   for (const d of built.dropped) console.log(`  dropped ${d.path}  (${d.reason})`);
+  for (const i of built.inserted) console.log(`  inserted ${i.path} after ${i.after}  (${i.reason})`);
   return 0;
 }
 

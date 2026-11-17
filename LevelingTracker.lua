@@ -8,7 +8,7 @@ local UnitLevel, GetRealZoneText, IsInGroup, tonumber, GetTime, GetServerTime, U
                                                                                         IsInGroup, tonumber, GetTime,
                                                                                         GetServerTime, UnitXP
 local AceGUI = LibStub("AceGUI-3.0")
-local LibDeflate = LibStub("LibDeflate")
+-- WF: LibDeflate not loaded; its only users here were the level-splits string export/import (removed)
 local L = addon.locale.Get
 local EasyMenu = function(...) addon:ShowMenu(...) end
 local UnitName = addon.GetUnitName
@@ -913,28 +913,7 @@ function addon.tracker:UpdateSplitsMenu(menuFrame, button)
         }
     }
 
-    tinsert(comparisonsMenu, {
-        text = L("Export"),
-        notCheckable = 1,
-        func = function()
-            addon.comms.OpenBrandedExport(L"Export Level Splits",
-                                          L"Export string for Importing into another character's comparison data",
-                                          addon.tracker:BuildSplitsExport(), 20, 200)
-            addon:CloseMenu()
-        end
-    })
-
-    tinsert(comparisonsMenu, {
-        text = L("Import"),
-        notCheckable = 1,
-        func = function()
-            addon.comms.OpenBrandedExport(L"Import Level Splits", L"Import string from another character", "", 20, 200,
-                                          addon.tracker.ImportSplits)
-            -- Regenerate menu on next load
-            addon.tracker.state.splitsMenu = nil
-            addon:CloseMenu()
-        end
-    })
+    -- WF: removed the level-splits "Export" and "Import" string entries (no string imports; LibDeflate removed)
 
     tinsert(comparisonsMenu, {text = _G.CHARACTER, notCheckable = 1, isTitle = true})
 
@@ -1374,33 +1353,7 @@ function addon.tracker:BuildSplitsShare()
     return splitsString
 end
 
-function addon.tracker:BuildSplitsExport()
-    local reportSplitsData = self:CompileLevelSplits("full")
-
-    return LibDeflate:EncodeForPrint(LibDeflate:CompressDeflate(addon.comms:Serialize(reportSplitsData)))
-end
-
-function addon.tracker.ImportSplits(encodedText)
-    local decoded = LibDeflate:DecodeForPrint(encodedText)
-
-    if not decoded then
-        addon.comms.PrettyPrint(L"Invalid data")
-        return
-    end
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-
-    local deserializeResult, deserialized = addon.comms:Deserialize(decompressed)
-
-    if not deserializeResult then
-        addon.comms.PrettyPrint(L"Error Importing: " .. deserialized)
-        return
-    end
-
-    addon.comms.PrettyPrint(L"Importing %s", deserialized.title)
-    addon.db.profile.reports.splits[deserialized.reportKey] = deserialized
-
-    return true
-end
+-- WF: removed addon.tracker:BuildSplitsExport and addon.tracker.ImportSplits (string export/import, used LibDeflate)
 
 function addon.tracker:OnCommReceived(prefix, data, distribution, sender)
     if prefix ~= self._commPrefix or distribution ~= 'WHISPER' then return end -- or sender == playerName then return end

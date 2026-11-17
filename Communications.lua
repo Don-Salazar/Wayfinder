@@ -824,6 +824,7 @@ function addon.comms.grouping:SendCurrentStep(encodedPayload)
 end
 
 function addon.comms.grouping:BroadcastCurrentStep(encodedPayload)
+    if not encodedPayload then return end -- WF: no payload when the client lacks C_EncodingUtil (LibDeflate removed)
     if not self:CanBroadcastCurrentStep() then return end
 
     local now = GetTime()

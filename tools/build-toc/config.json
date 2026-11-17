@@ -1,5 +1,5 @@
 {
-  "description": "Input for tools/build-toc. Wayfinder.toc is generated from upstream's RXPGuides.toc: the file lines that load for gameType, minus 'drop', under the header below. Header values are written in this order; the value \"inherit\" copies upstream's line unchanged. Upstream metadata not named here (X-*, Interface-*, Title-*, Category*) is not carried over.",
+  "description": "Input for tools/build-toc. Wayfinder.toc is generated from upstream's RXPGuides.toc: the file lines that load for gameType, minus 'drop', plus our own files from 'insert' (each written right after its 'after' line, in list order), under the header below. Header values are written in this order; the value \"inherit\" copies upstream's line unchanged. Upstream metadata not named here (X-*, Interface-*, Title-*, Category*) is not carried over.",
   "upstreamToc": "RXPGuides.toc",
   "output": "Wayfinder.toc",
   "addon": "Wayfinder",
@@ -14,7 +14,13 @@
     "SavedVariables": "RXPData, RXPDB, RXPSettings",
     "SavedVariablesPerCharacter": "inherit"
   },
-  "drop": [],
+  "drop": [
+    { "path": "CptStadicsVendorTreasures.lua", "reason": "Cpt. Stadics' Vendor Treasures is CC BY-NC 3.0 third-party Classic vendor data; owner decided 2026-11-17 not to ship it. Every caller already checks addon.VendorTreasures." }
+  ],
+  "insert": [
+    { "path": "Modules/MenuCompat.lua", "after": "Communications.lua", "reason": "Menu adapter replacing LibUIDropDownMenu (GPL); loads before RXPGuides.lua, whose addon:ShowMenu/CloseMenu call it." },
+    { "path": "Modules/MinimapButton.lua", "after": "Communications.lua", "reason": "Own minimap button replacing LibDataBroker-1.1 + LibDBIcon-1.0; loads before SettingsPanel.lua, whose UpdateMinimapButton calls it." }
+  ],
   "ship": {
     "extraFiles": ["Bindings.xml", "LICENSE", "NOTICE.md"],
     "assetDirs": ["Textures"]

@@ -14,6 +14,8 @@ UI\includes.xml
 Locale.lua
 Themes.lua
 Communications.lua
+Modules/MenuCompat.lua
+Modules/MinimapButton.lua
 RXPGuides.lua
 GuideWindow.lua
 Help.lua
@@ -39,4 +41,3 @@ lang/Guides-ptBR/GuideList-forever.xml
 Talents.lua
 Guides/Talents/classic.xml
 ItemUpgrades.lua
-CptStadicsVendorTreasures.lua

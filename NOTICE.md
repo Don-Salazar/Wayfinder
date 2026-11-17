@@ -52,15 +52,15 @@ These components came with the upstream work. Each keeps its own licence.
 |---|---|---|---|
 | Ace3 (AceAddon, AceComm, AceConfig, AceConsole, AceDB, AceDBOptions, AceEvent, AceGUI, AceLocale, AceSerializer) and CallbackHandler-1.0 | `libs/` | Ace3 BSD-style licence, text below | |
 | LibCandyBar-3.0 | `libs/` | Ace3-style BSD, as published on WowAce | |
-| LibDBIcon-1.0 | `libs/` | Ace3-style BSD, as published on WowAce | |
+| LibDBIcon-1.0 | `libs/` | Ace3-style BSD, as published on WowAce | Not loaded or shipped by Wayfinder since 2026-11-17 (owner decision); source left in the repo |
 | HereBeDragons | `libs/HereBeDragons/` | BSD (`## X-License: BSD` in its TOC). Author: Nevcairiel | |
 | LibStub | `libs/` | Public domain | |
 | ChatThrottleLib | inside AceComm | Public domain | |
 | plc `base64.lua` | `libs/plc/` | MIT, © 2015–2018 Phil Leblanc. Licence text in `libs/plc/LICENSE` | Modified by upstream |
-| LibDeflate | `libs/LibDeflate/` | zlib licence per the file header, © Haoqian He | The bundled `LICENSE.txt` is an older LGPLv3 text. Under review |
-| LibDataBroker-1.1 | `libs/` | No licence statement found | Under review |
-| LibUIDropDownMenu | `libs/mainline/` | GPL, as published on WowAce | Marked for removal |
-| Cpt. Stadics' Vendor Treasures (data) | `CptStadicsVendorTreasures.lua` | CC BY-NC 3.0, https://creativecommons.org/licenses/by-nc/3.0/. Author: Stadics. Source: https://www.curseforge.com/wow/addons/cpt-stadics-map-of-vendor-treasures | Adapted by upstream. Under review |
+| LibDeflate | `libs/LibDeflate/` | zlib licence per the file header, © Haoqian He | The bundled `LICENSE.txt` is an older LGPLv3 text. Not loaded or shipped by Wayfinder since 2026-11-17 (owner decision); source left in the repo |
+| LibDataBroker-1.1 | `libs/` | No licence statement found | Not loaded or shipped by Wayfinder since 2026-11-17 (owner decision); source left in the repo |
+| LibUIDropDownMenu | `libs/mainline/` | GPL, as published on WowAce | Not loaded or shipped by Wayfinder since 2026-11-17 (owner decision); source left in the repo |
+| Cpt. Stadics' Vendor Treasures (data) | `CptStadicsVendorTreasures.lua` | CC BY-NC 3.0, https://creativecommons.org/licenses/by-nc/3.0/. Author: Stadics. Source: https://www.curseforge.com/wow/addons/cpt-stadics-map-of-vendor-treasures | Adapted by upstream. Not loaded or shipped by Wayfinder since 2026-11-17 (owner decision); source left in the repo |
 | HandyNotes – Pandaria Treasures (data) | `DB/mop/rares.lua` | GPLv3, as published on CurseForge | Not loaded on Forever. Marked for removal |
 
 "Under review" and "Marked for removal" are tracked in
