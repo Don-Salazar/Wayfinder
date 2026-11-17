@@ -1,5 +1,5 @@
 {
-  "description": "Known findings in the unmodified upstream tree (RXPGuides 22e6ce26). New findings fail the check.",
+  "description": "Known manifest findings. Entries without 'addon' are upstream's RXPGuides TOCs (from RXPGuides 22e6ce26 plus our deletions, each with a 'reason'); 'addon: Wayfinder' entries are for our generated Wayfinder.toc, are inherited from upstream XML we do not edit, and must carry a 'reason'. New or vanished findings fail the check.",
   "findings": [
     {
       "gameType": "standard",
@@ -133,6 +133,23 @@
       "from": "UI/includes.xml",
       "ref": "V2\\Manifest.xml",
       "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "mists",
+      "kind": "missing",
+      "from": "DB/mop.xml",
+      "ref": "DB/mop/rares.lua",
+      "note": "not found relative to DB/mop.xml's folder or the addon root",
+      "reason": "Deleted on purpose (2026-11-17): copied from a GPL-licensed addon, HandyNotes Pandaria Treasures (its line 3; docs/OPEN_QUESTIONS.md D1.1). GPL data is forbidden in this repo (CLAUDE.md). DB/mop.xml is upstream XML we do not edit; it loads only on mists, never on Forever."
+    },
+    {
+      "addon": "Wayfinder",
+      "gameType": "camelot",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\"",
+      "reason": "Inherited from upstream UI/includes.xml (same finding as RXPGuides camelot). Harmless on Windows (case-insensitive file system); fixed only if we ever edit upstream XML."
     }
   ]
 }
