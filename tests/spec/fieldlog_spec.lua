@@ -32,13 +32,15 @@ describe("Modules/FieldLog.lua", function()
       C_Map = { GetBestMapForUnit = function() return s.map end },
       issecretvalue = function(value) return value == SECRET end,
       time = function() return s.clock end,
+      QuestFrame = { IsShown = function() return s.questShown end },
+      GossipFrame = { IsShown = function() return s.gossipShown end },
     }
   end
 
   local function load(options)
     options = options or {}
     s = { xp = 100, xpMax = 1000, level = 5, guids = {}, names = { player = "Testchar" }, map = 9001,
-      clock = 1000000 }
+      clock = 1000000, questShown = false, gossipShown = false }
     wow.install(client_api())
     if options.release then wow.set_metadata({ Version = "1.0.0" }) end
     addon = options.addon or {}
@@ -124,7 +126,8 @@ describe("Modules/FieldLog.lua", function()
       assert.is_false(WF.Log("note", { tx = "x" }))
       WF:Guard("test", function() error("after off") end)()
       WF:SetEnabled("fieldlog", true)
-      assert.are.equal(2, #events("session"))
+      assert.are.equal(1, #events("session")) -- one session per addon load
+      assert.are.equal(1, #events("error")) -- the error from while it was off is drained on enable
     end)
   end)
 
@@ -207,8 +210,9 @@ describe("Modules/FieldLog.lua", function()
 
     it("starts with the default cap and repairs a damaged ring from saved data", function()
       load({ saved = { WayfinderCharData = { log = { v = 1, cap = 1000, head = 7, count = 3,
-        events = { { n = 3, k = "note" }, { n = 1, k = "session" }, { n = 2, k = "note" } } } } } })
+        events = { { n = 3, k = "note" }, { n = 1, k = "session" }, { n = 2, k = "note" }, { bad = true } } } } } })
       local log = FieldLog.GetLog()
+      assert.are.equal(1, log.dropped) -- the entry that was not an event
       local ns = {}
       for i, event in ipairs(FieldLog.Linearize(log)) do ns[i] = event.n end
       assert.are.same({ 1, 2, 3, 4 }, ns) -- repaired, then this session's event #4
@@ -216,6 +220,21 @@ describe("Modules/FieldLog.lua", function()
       wow.install()
       load()
       assert.are.equal(20000, FieldLog.GetLog().cap)
+    end)
+
+    it("says so when it discards a saved log of another format", function()
+      load({ saved = { WayfinderCharData = { log = { v = 99, events = {} } } } })
+      assert.is_true(wow.chat_contains("was discarded"))
+      assert.are.equal(1, FieldLog.GetLog().v)
+    end)
+
+    it("cuts long strings on a UTF-8 boundary", function()
+      load()
+      local euro = "\226\130\172"
+      local _, event = WF.Log("note", { tx = ("x"):rep(1999) .. euro })
+      assert.are.equal(1999, #event.tx)
+      assert.are.equal("ab", FieldLog.TrimUtf8("ab" .. euro, 4))
+      assert.are.equal("ab" .. euro, FieldLog.TrimUtf8("ab" .. euro .. "c", 5))
     end)
 
     it("clears with /wf log clear and starts again with a session event", function()
@@ -251,30 +270,70 @@ describe("Modules/FieldLog.lua", function()
       assert.is_nil(session.sp)
       assert.is_true(session.o.mods.fieldlog)
       assert.is_false(session.o.includeName)
-      assert.is_nil(session.nm)
-      assert.is_nil(session.rl)
+      assert.is_nil(session.pn)
+      assert.is_nil(session.pr)
       assert.is_false(contains_string(rawget(_G, "WayfinderCharData"), "Testchar"))
       assert.is_false(contains_string(rawget(_G, "WayfinderCharData"), "Testrealm"))
     end)
 
-    it("keeps the install id across sessions and counts sessions", function()
+    it("keeps one session per addon load: toggling keeps the session and its clock", function()
       load()
       local id = FieldLog.GetLog().id
+      wow.advance(30)
       WF:SetEnabled("fieldlog", false)
+      wow.advance(10)
       WF:SetEnabled("fieldlog", true)
+      local _, event = WF.Log("note", { tx = "after toggle" })
+      assert.are.equal(40, event.t)
       assert.are.equal(id, FieldLog.GetLog().id)
-      assert.are.equal(2, FieldLog.GetLog().sessions)
-      assert.are.equal(2, events("session")[2].s)
+      assert.are.equal(1, FieldLog.GetLog().sessions)
+      assert.are.equal(1, #events("session"))
     end)
 
-    it("records name and realm only when the option is on", function()
+    it("counts a new session on the next addon load", function()
+      load()
+      local saved = rawget(_G, "WayfinderCharData")
+      local account = rawget(_G, "WayfinderData")
+      load({ saved = { WayfinderCharData = saved, WayfinderData = account } })
+      assert.are.equal(2, FieldLog.GetLog().sessions)
+      assert.are.equal(2, events("session")[2].s)
+      assert.are.equal(events("session")[1].id, events("session")[2].id)
+    end)
+
+    it("does not reseed the shared random generator for the install id", function()
+      local original, called = math.randomseed, false
+      rawset(math, "randomseed", function() called = true end)
+      local ok, err = pcall(load)
+      rawset(math, "randomseed", original)
+      assert.is_true(ok, tostring(err))
+      assert.is_false(called)
+      assert.truthy(FieldLog.GetLog().id:match("^%x%x%x%x%x%x%x%x%x%x%x%x$"))
+    end)
+
+    it("records name and realm (pn, pr) only when the option is on, and scrubs them when it goes off", function()
+      load({ before = function() WF:SetOption("fieldlogIncludeName", true) end })
+      local session = events("session")[1]
+      assert.are.equal("Testchar", session.pn)
+      assert.are.equal("Testrealm", session.pr)
+      assert.is_nil(session.nm)
+      WF:SetOption("fieldlogIncludeName", false)
+      assert.is_nil(session.pn)
+      assert.is_nil(session.pr)
+      assert.is_false(contains_string(rawget(_G, "WayfinderCharData"), "Testchar"))
+    end)
+
+    it("scrubs names on enable when the option was turned off while the module was off", function()
+      load({ before = function() WF:SetOption("fieldlogIncludeName", true) end })
+      WF:SetEnabled("fieldlog", false)
+      WF:SetOption("fieldlogIncludeName", false)
+      assert.are.equal("Testchar", rawget(_G, "WayfinderCharData").log.events[1].pn) -- not on: no listener
+      WF:SetEnabled("fieldlog", true)
+      assert.is_nil(rawget(_G, "WayfinderCharData").log.events[1].pn)
+    end)
+
+    it("shows the name option under the module toggle", function()
       load()
       WF:SetOption("fieldlogIncludeName", true)
-      WF:SetEnabled("fieldlog", false)
-      WF:SetEnabled("fieldlog", true)
-      local session = events("session")[2]
-      assert.are.equal("Testchar", session.nm)
-      assert.are.equal("Testrealm", session.rl)
       local options = WF:BuildOptionsTable()
       local toggle = options.args.fieldlog_opt_fieldlogIncludeName
       assert.are.equal("toggle", toggle.type)
@@ -303,9 +362,10 @@ describe("Modules/FieldLog.lua", function()
   end)
 
   describe("quests", function()
-    it("stores only the creature ID and name of an NPC giver", function()
+    it("stores only the creature ID and name of an NPC giver while a quest frame is open", function()
       load()
       addon.currentGuide = { steps = { { elements = { { questId = 99001 }, { text = "x" } } } } }
+      s.questShown = true
       s.guids.npc = CREATURE_GUID
       s.names.npc = "Test Giver"
       wow.fire_event("QUEST_ACCEPTED", 99001)
@@ -317,8 +377,21 @@ describe("Modules/FieldLog.lua", function()
       assert.is_false(contains_string(event, "Creature-"))
     end)
 
+    it("records no giver when no quest or gossip frame is open (shared, item or auto-accepted quests)", function()
+      load()
+      s.guids.npc, s.names.npc = CREATURE_GUID, "Stale Giver"
+      wow.fire_event("QUEST_ACCEPTED", 99001)
+      s.gossipShown = true
+      wow.fire_event("QUEST_ACCEPTED", 99002)
+      local list = events("quest_accept")
+      assert.is_nil(list[1].c)
+      assert.is_nil(list[1].nm)
+      assert.are.equal(99901, list[2].c)
+    end)
+
     it("stores the object ID for a game object, and nothing for a player", function()
       load()
+      s.questShown = true
       addon.currentGuide = { steps = { { elements = { { questId = 99001 } } } } }
       s.guids.npc, s.names.npc = OBJECT_GUID, "Test Chest"
       wow.fire_event("QUEST_ACCEPTED", 7, 99002) -- (logIndex, questID) form
@@ -373,71 +446,93 @@ describe("Modules/FieldLog.lua", function()
       wow.fire_event("PLAYER_XP_UPDATE", "player")
     end
 
-    it("coalesces gains per second per source", function()
+    it("holds each sample for the turn-in window, then coalesces per second per source", function()
       load()
       gain(300)
-      wow.next_frame()
+      wow.advance(0.1)
       gain(350)
-      wow.next_frame()
+      wow.advance(0.45)
       assert.are.equal(0, #events("xp"))
-      wow.advance(1.1)
+      wow.advance(1.5)
       local list = events("xp")
       assert.are.equal(1, #list)
       assert.are.same({ 250, "other", 2, 5 }, { list[1].a, list[1].src, list[1].s, list[1].lv })
+      assert.is_nil(list[1].ap)
       gain(400)
-      wow.next_frame()
-      wow.advance(1.1)
+      wow.advance(2)
       assert.are.equal(2, #events("xp"))
     end)
 
     it("counts the rest of the old level when a level-up wraps XP", function()
       load()
       gain(950)
-      wow.next_frame()
+      wow.advance(0.1)
       gain(50, 1200, 6)
-      wow.next_frame()
-      wow.advance(1.1)
+      wow.advance(2)
       local list = events("xp")
       assert.are.equal(2, #list)
       assert.are.same({ 850, 5 }, { list[1].a, list[1].lv })
       assert.are.same({ 100, 6 }, { list[2].a, list[2].lv })
     end)
 
-    it("labels XP next to a turn-in as quest XP, in either order", function()
+    it("detects a level-up from the level even when the new XP is not lower", function()
+      load() -- baseline 100 / 1000 at level 5
+      gain(150, 1200, 6)
+      wow.advance(2)
+      gain(200, 1400, 8) -- two levels at once: the levels between are unknown
+      wow.advance(2)
+      local list = events("xp")
+      assert.are.same({ 1050, 6 }, { list[1].a, list[1].lv })
+      assert.is_nil(list[1].ap)
+      assert.are.same({ 1250, 8, true }, { list[2].a, list[2].lv, list[2].ap })
+    end)
+
+    it("does not count a lagging UnitLevel catch-up as a second level-up", function()
+      load()
+      gain(950)
+      gain(50) -- XP dropped, UnitLevel still 5
+      gain(80, 1200, 6) -- UnitLevel catches up
+      wow.advance(0.6)
+      wow.fire_event("PLAYER_LOGOUT")
+      local total = 0
+      for _, event in ipairs(events("xp")) do total = total + event.a end
+      assert.are.equal(850 + 100 + 30, total)
+    end)
+
+    it("labels XP as quest XP when a turn-in falls within the window on either side", function()
       load()
       wow.fire_event("QUEST_TURNED_IN", 99001, 200, 0)
-      gain(300)
-      wow.next_frame()
-      wow.advance(1.1)
+      wow.advance(0.3)
+      gain(300) -- turn-in 0.3 s before
       wow.advance(5)
       gain(500)
-      wow.fire_event("QUEST_TURNED_IN", 99002, 200, 0)
-      wow.next_frame()
-      wow.advance(1.1)
+      wow.advance(0.4)
+      wow.fire_event("QUEST_TURNED_IN", 99002, 200, 0) -- turn-in 0.4 s after
       wow.advance(5)
       gain(510)
-      wow.next_frame()
-      wow.advance(1.1)
+      wow.advance(0.8)
+      wow.fire_event("QUEST_TURNED_IN", 99003, 200, 0) -- 0.8 s after: too late
+      wow.advance(5)
       local list = events("xp")
       assert.are.same({ "quest", "quest", "other" }, { list[1].src, list[2].src, list[3].src })
     end)
 
-    it("ignores other units and writes pending XP at logout", function()
+    it("ignores other and secret units and writes held XP at logout", function()
       load()
       s.xp = 900
       wow.fire_event("PLAYER_XP_UPDATE", "party1")
+      wow.fire_event("PLAYER_XP_UPDATE", SECRET)
       gain(150 + 50)
-      wow.next_frame()
-      wow.fire_event("PLAYER_LOGOUT")
+      wow.fire_event("PLAYER_LOGOUT") -- the sample is still held
       local list = events("xp")
       assert.are.equal(1, #list)
       assert.are.equal(100, list[1].a)
+      assert.are.equal(0, #WF.errors)
     end)
 
     it("logs no xp and one probe when XP is secret", function()
       load({ before = function() s.xp = SECRET end })
       gain(SECRET)
-      wow.next_frame()
       wow.advance(2)
       assert.are.equal(0, #events("xp"))
       local probes = events("probe")
@@ -476,6 +571,31 @@ describe("Modules/FieldLog.lua", function()
       assert.is_true(#list[2].st <= 2000)
     end)
 
+    it("writes a new error event when the earlier one has left the ring", function()
+      load()
+      WF:HandleSlash("log cap 1000")
+      local guarded = WF:Guard("test", function() error("boom") end)
+      guarded()
+      for i = 1, 1000 do WF.Log("note", { tx = tostring(i) }) end
+      guarded()
+      local list = events("error")
+      assert.are.equal(1, #list)
+      assert.are.equal(2, list[1].c)
+      WF:HandleSlash("log clear")
+      guarded()
+      assert.are.equal(1, #events("error"))
+      assert.are.equal(3, events("error")[1].c)
+    end)
+
+    it("records a count of errors beyond Core's cap", function()
+      load()
+      for i = 1, 55 do WF:Guard("test", function() error("distinct " .. i) end)() end
+      local list = events("error")
+      assert.are.equal(51, #list)
+      assert.truthy(list[51].msg:find("not recorded", 1, true))
+      assert.are.equal(5, list[51].c)
+    end)
+
     it("records blocked and forbidden actions of this addon only, counting repeats", function()
       load()
       wow.fire_event("ADDON_ACTION_BLOCKED", "OtherAddon", "CastSpellByID")
@@ -487,6 +607,29 @@ describe("Modules/FieldLog.lua", function()
       assert.are.same({ "TargetUnit()", "forbidden", 2 }, { list[1].fn, list[1].ev, list[1].c })
       assert.are.same({ "UseAction()", "blocked", 1 }, { list[2].fn, list[2].ev, list[2].c })
       assert.are.equal(loader.ADDON_NAME, list[1].ad)
+    end)
+
+    it("starts a new blocked event after eviction or clear, and bounds its index", function()
+      load()
+      WF:HandleSlash("log cap 1000")
+      wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "UseAction()")
+      for i = 1, 1000 do WF.Log("note", { tx = tostring(i) }) end
+      wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "UseAction()")
+      assert.are.same({ 1 }, { events("blocked")[1].c })
+      WF:HandleSlash("log clear")
+      wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "UseAction()")
+      assert.are.equal(1, #events("blocked"))
+      -- 201 distinct functions: the index starts over at its bound of 200.
+      for i = 1, 201 do wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "F" .. i) end
+      wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "F201")
+      wow.fire_event("ADDON_ACTION_BLOCKED", loader.ADDON_NAME, "F1")
+      local f1, f201 = {}, {}
+      for _, event in ipairs(events("blocked")) do
+        if event.fn == "F1" then f1[#f1 + 1] = event.c end
+        if event.fn == "F201" then f201[#f201 + 1] = event.c end
+      end
+      assert.are.same({ 1, 1 }, f1) -- forgotten by the reset: a new event
+      assert.are.same({ 2 }, f201) -- kept after the reset: counted
     end)
   end)
 

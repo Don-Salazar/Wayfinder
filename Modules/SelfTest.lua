@@ -775,6 +775,8 @@ local function finish(status, report)
     report.complete = status == "done"
     report.counts = summarize(report.results)
     if WF.db then WF.db.selftest = report end
+    -- The field log (when on) records the results that did not pass.
+    if type(WF.Fire) == "function" then WF:Fire("selftest", report) end
     local c = report.counts
     local outcome = report.complete and "done" or ("stopped early (" .. tostring(status) .. ")")
     local line = ("self-test %s: %d passed, %d failed, %d missing, %d skipped - /reload to save"):format(

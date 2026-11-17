@@ -428,6 +428,17 @@ describe("Modules/Core.lua", function()
       assert.are.equal(2, #WF.errors) -- boom, plus the listener's own error recorded once
     end)
 
+    it("fires one synthetic record counting errors dropped at the cap", function()
+      load_core()
+      local seen = {}
+      WF:On("error", function(record) if record.synthetic then seen[#seen + 1] = record end end)
+      for i = 1, 53 do WF:Guard("test", function() error("distinct " .. i) end)() end
+      assert.are.equal(3, #seen)
+      assert.are.equal(seen[1], seen[3]) -- the same record, updated
+      assert.are.equal(3, seen[3].count)
+      assert.are.equal(50, #WF.errors) -- not added to the error list
+    end)
+
     it("keeps WF.Log a no-op until the field log replaces it", function()
       load_core()
       assert.is_false(WF.Log("note", { tx = "x" }))
@@ -481,6 +492,11 @@ describe("Modules/Core.lua", function()
       assert.has_error(function()
         WF:RegisterModule("d", test_module({ slash = {}, options = { { key = "z", title = "Z" } } }))
       end)
+      assert.has_error(function()
+        WF:RegisterModule("e", test_module({ slash = {}, options = {
+          { key = "twice", title = "A", default = false }, { key = "twice", title = "B", default = true } } }))
+      end)
+      assert.is_nil(WF.GetModule("e"))
     end)
   end)
 

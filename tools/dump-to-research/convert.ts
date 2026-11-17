@@ -154,13 +154,10 @@ export function toCsvs(dump: Dump): Record<string, string> {
   const statRows: string[][] = [];
   list(st.primary).map(obj).forEach((p, i) => {
     const label = PRIMARY_LABELS[(num(p.index) ?? i + 1) - 1] ?? `stat${cell(p.index)}`;
-    statRows.push([`${label}_base`, cell(p.base)], [`${label}_effective`, cell(p.effective)]);
+    statRows.push([`${label}_base`, cell(p.base)]);
   });
   statRows.push(
     ["armor_base", cell(obj(st.armor).base)],
-    ["armor_effective", cell(obj(st.armor).effective)],
-    ["health_max", cell(st.healthMax)],
-    ["power_max", cell(st.powerMax)],
     ["level", cell(st.level)],
     ["equipped_slots", list(st.equippedSlots).map(cell).join(" ")],
     ["naked", cell(st.naked)],

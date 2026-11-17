@@ -47,8 +47,7 @@ WayfinderData = {
 			{ ["source"] = "seed", ["itemID"] = 2002, ["cached"] = false },
 		},
 		["stats"] = {
-			["primary"] = { { ["index"] = 1, ["base"] = 21, ["effective"] = 23 } },
-			["healthMax"] = "secret",
+			["primary"] = { { ["index"] = 1, ["base"] = 21 } },
 			["naked"] = false,
 			["equippedSlots"] = { 16 },
 		},
@@ -128,8 +127,8 @@ test("toCsvs writes one CSV per section with the expected cells", () => {
     assert.equal(trainer[1]![trainer[0]!.indexOf("cost")], "10s");
     assert.equal(trainer[1]![trainer[0]!.indexOf("npc_id")], "4242");
     const stats = parseCsv(csvs["stats.csv"]!);
-    assert.deepEqual(stats.slice(1, 3), [["strength_base", "21"], ["strength_effective", "23"]]);
-    assert.ok(stats.some((r) => r[0] === "health_max" && r[1] === "secret"));
+    assert.deepEqual(stats.slice(1, 2), [["strength_base", "21"]]);
+    assert.ok(!stats.some((r) => /_effective$|^health_max$|^power_max$/.test(r[0]!)), "removed columns stay out");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

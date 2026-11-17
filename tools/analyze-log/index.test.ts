@@ -191,6 +191,19 @@ test("analyze: writes report and patch, deterministic, and lists repeated findin
   }
 });
 
+test("report: opted-in player name (pn/pr) labels the session; approximate XP is flagged", () => {
+  const events: LogEvent[] = [
+    session(1, 1, "2026-11-18 20:00:00", 3, { pn: "Testchar", pr: "Testrealm" }),
+    { n: 2, k: "quest_accept", t: 5, lv: 3, q: 99001, g: false, c: 99901, nm: "Test Giver" },
+    { n: 3, k: "xp", t: 10, lv: 5, a: 4000, src: "quest", ap: true },
+  ];
+  const sessions = splitSessions(events);
+  assert.equal(sessions[0]!.label, "Troll WARRIOR Testchar-Testrealm");
+  const md = buildReport({ installId: ID, logs: charLog(ring(events)) }).markdown;
+  assert.match(md, /1 xp event\(s\) span more than one level and are approximate: #3\./);
+  assert.match(md, /NPC 99901 \(Test Giver\)/);
+});
+
 test("previousReportName picks the latest earlier report for the same install only", () => {
   const names = [`2026-11-10-${ID}.md`, `2026-11-12-${ID}.md`, `2026-11-12-${ID}.patch.md`, "2026-11-13-ffffffffffff.md",
     `2026-11-14-${ID}.md`];

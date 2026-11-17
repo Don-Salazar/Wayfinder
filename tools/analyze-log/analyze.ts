@@ -121,8 +121,9 @@ export function findLogs(data: unknown, source: string): { logs: CharacterLog[];
 function characterLabel(header: LogEvent | undefined): string {
   if (!header) return "unknown character";
   const parts = [str(header.r), str(header.cl)].filter((p): p is string => !!p);
-  const name = str(header.nm);
-  const realm = str(header.rl);
+  // pn / pr: the player name and realm, present only when the player opted in.
+  const name = str(header.pn);
+  const realm = str(header.pr);
   if (name) parts.push(realm ? `${name}-${realm}` : name);
   return parts.length ? parts.join(" ") : "unknown character";
 }
@@ -510,7 +511,9 @@ export function buildReport(input: ReportInput): Report {
     }
     out.push("");
   }
-  out.push("Sources are only `quest` (XP within 0.5 s of a turn-in) and `other`; kill and exploration XP are not told apart (no chat or combat parsing).", "");
+  out.push("Sources are only `quest` (XP within 0.5 s of a turn-in, before or after it) and `other`; kill and exploration XP are not told apart (no chat or combat parsing).", "");
+  const approximate = eventsOf(sessions, "xp").filter(({ event }) => event.ap === true);
+  if (approximate.length) out.push(`${approximate.length} xp event(s) span more than one level and are approximate: ${evRef(approximate.map((a) => a.event))}.`, "");
   out.push("### Level timeline", "");
   const levelEvents = eventsOf(sessions, "level");
   if (!levelEvents.length) out.push("None.", "");

@@ -16,8 +16,10 @@
 --   * No combat state: no health, auras, cooldowns, threat, target or enemy
 --     data, no combat-log or chat parsing, no PLAYER_REGEN_* events.
 --   * Privacy: no chat, no other players' names, no character name or realm
---     unless the player turns on the fieldlogIncludeName option. The session
---     event carries a random per-install ID instead.
+--     unless the player turns on the fieldlogIncludeName option (session
+--     fields pn, pr; turning the option off removes them from the stored
+--     log). The session event carries a random per-install ID instead.
+--   * One session per addon load: toggling the module keeps it.
 --   * Every value the client may mark "secret" passes the issecretvalue check
 --     (when the client has it) before anything else touches it.
 --   * Off: no frames, no events, no messages, WF.Log is a no-op. On: one
@@ -79,15 +81,21 @@ WF.FieldLog = FieldLog
 local frame -- event frame, created on first enable
 local active = false
 local log -- WayfinderCharData.log while active
+-- One session per addon load (login or /reload): toggling the module off and
+-- on again keeps the session, its start time and its session event.
+local sessionStarted = false
 local sessionStart = 0
 local sessionEvent -- this session's session event (guide fields are filled in on load)
 local generation = 0 -- bumped on enable and disable; stale timers compare it
 local guideSet, guideSetFor -- quest ID set and the guide table it was built from
-local xp = {} -- { cur, max, disabled }
-local lastTurnIn -- GetTime() of the last QUEST_TURNED_IN
-local pending = {} -- source -> { a = amount, s = samples, lv = level }
+local xp = {} -- { cur, max, lv, disabled }
+local turnIns = {} -- GetTime() of recent QUEST_TURNED_IN events
+local held = {} -- XP samples waiting QUEST_XP_WINDOW for a turn-in on either side
+local pending = {} -- source -> { a = amount, s = samples, lv = level, ap = approximate }
 local loggedErrors = {} -- Core error record -> its logged event
 local blockedIndex = {} -- event .. "\0" .. function -> its logged event
+local blockedEntries = 0
+local MAX_BLOCKED_INDEX = 200
 local guideCallback -- the function registered for GUIDE_LOADED_MESSAGE
 
 -- ---------------------------------------------------------------------------
@@ -116,13 +124,28 @@ local function call(path, ...)
     return pcall(fn, ...)
 end
 
+--- text cut to at most limit bytes without splitting a UTF-8 character.
+function FieldLog.TrimUtf8(text, limit)
+    if #text <= limit then return text end
+    text = text:sub(1, limit)
+    local lead = text:find("[\192-\255][\128-\191]*$")
+    if lead then
+        local byte = text:byte(lead)
+        local size = byte >= 240 and 4 or byte >= 224 and 3 or 2
+        if #text - lead + 1 < size then text = text:sub(1, lead - 1) end
+    end
+    return text
+end
+
+local trimUtf8 = FieldLog.TrimUtf8
+
 -- A plain copy of value: "secret", a capped string, a finite number, a
 -- boolean, or a table of those (two levels deep). Anything else is nil.
 local function clean(value, depth)
     if isSecret(value) then return "secret" end
     local kind = type(value)
     if kind == "string" then
-        return #value > MAX_STRING and value:sub(1, MAX_STRING) or value
+        return trimUtf8(value, MAX_STRING)
     elseif kind == "number" then
         if value ~= value or value == math.huge or value == -math.huge then return tostring(value) end
         return value
@@ -217,13 +240,24 @@ function FieldLog.InstallId()
     local db = WF.db
     if type(db) ~= "table" then return nil end
     if type(db.installId) == "string" and db.installId:match("^%x+$") then return db.installId end
+    -- math.random as the client seeded it (never math.randomseed: that would
+    -- change the shared generator for every addon), mixed with a table's
+    -- address text and the clocks.
+    local mix = tonumber((tostring({}):match("(%x+)%s*$") or "0"):sub(-7), 16) or 0
     local clock = resolve("time")
-    local seed = (type(clock) == "function" and tonumber(clock()) or 0) + math.floor(now() * 1000)
+    local ok, seconds = false, nil
+    if type(clock) == "function" then ok, seconds = pcall(clock) end
+    mix = mix + (ok and tonumber(seconds) or 0) % 1000003 + math.floor(now() * 1000) % 1000003
     local profile = resolve("debugprofilestop")
-    if type(profile) == "function" then seed = seed + math.floor(tonumber(profile()) or 0) end
-    if type(math.randomseed) == "function" then pcall(math.randomseed, seed % 2147483647) end
+    if type(profile) == "function" then
+        local profOk, ms = pcall(profile)
+        if profOk then mix = mix + math.floor(tonumber(ms) or 0) % 1000003 end
+    end
     local parts = {}
-    for i = 1, 3 do parts[i] = ("%04x"):format(math.random(0, 65535)) end
+    for i = 1, 3 do
+        local value = (math.random(0, 65535) + math.floor(mix / (65536 ^ (i - 1)))) % 65536
+        parts[i] = ("%04x"):format(value)
+    end
     db.installId = table.concat(parts)
     return db.installId
 end
@@ -280,10 +314,19 @@ local function ensureLog()
     local id = FieldLog.InstallId()
     local saved = charDb.log
     if type(saved) ~= "table" or saved.v ~= LOG_VERSION or type(saved.events) ~= "table" then
+        if type(saved) == "table" then
+            WF.Print(("field log: the saved log (format %s) cannot be read by this version and was discarded.")
+                :format(tostring(saved.v)))
+        end
         saved = newLog(id)
         charDb.log = saved
     elseif not isValidRing(saved) then
-        rebuild(saved, FieldLog.Linearize(saved), clampCap(saved.cap))
+        local list = FieldLog.Linearize(saved)
+        local entries = 0
+        for _ in pairs(saved.events) do entries = entries + 1 end
+        -- Entries that are not events are lost in the repair: count them.
+        saved.dropped = (tonumber(saved.dropped) or 0) + (entries - #list)
+        rebuild(saved, list, clampCap(saved.cap))
     end
     saved.id = id
     saved.sessions = tonumber(saved.sessions) or 0
@@ -380,12 +423,30 @@ local function logSession(newSession)
         cl = classToken, r = raceToken, f = first("UnitFactionGroup", "player"),
         d = dateString(), gd = guideInfo(addon.currentGuide), sp = nil, o = optionsSnapshot(),
     }
+    -- pn / pr: the player's own name and realm (not nm, the NPC name on quest_accept).
     if WF:GetOption(INCLUDE_NAME_OPTION) then
-        fields.nm = first("UnitName", "player")
-        fields.rl = first("GetRealmName")
+        fields.pn = first("UnitName", "player")
+        fields.pr = first("GetRealmName")
     end
     local _, event = WF.Log("session", fields)
     sessionEvent = event or nil
+end
+
+--- Remove the player's name and realm from every stored session event.
+function FieldLog.ScrubNames(saved)
+    if type(saved) ~= "table" or type(saved.events) ~= "table" then return end
+    for _, event in pairs(saved.events) do
+        if type(event) == "table" and event.k == "session" then
+            event.pn, event.pr = nil, nil
+        end
+    end
+end
+
+-- Core's "option" notification: turning the name option off scrubs the log.
+local function onOption(key, value)
+    if key == INCLUDE_NAME_OPTION and not value then
+        FieldLog.ScrubNames(log or (type(WF.charDb) == "table" and WF.charDb.log))
+    end
 end
 
 -- RXP_GUIDE_LOADED: fill the session's guide, or list a later guide switch.
@@ -441,19 +502,38 @@ function FieldLog.ParseGiver(guid)
     return nil
 end
 
+-- Quest-giving frames the engine itself checks (RXPGuides.lua:1079-1090).
+-- The "npc" unit is only trusted as the giver while one of them is shown:
+-- for shared, item-started or auto-accepted quests (the engine hides
+-- QuestFrame on auto-accept) it may be stale or empty, so no giver is kept.
+local GIVER_FRAMES = { "QuestFrame", "GossipFrame" }
+
+local function giverFrameOpen()
+    for _, name in ipairs(GIVER_FRAMES) do
+        local f = resolve(name)
+        if type(f) == "table" and type(f.IsShown) == "function" then
+            local ok, shown = pcall(f.IsShown, f)
+            if ok and not isSecret(shown) and shown == true then return true end
+        end
+    end
+    return false
+end
+
 local function onQuestAccepted(arg1, arg2)
     -- Retail-family clients send (questID); older ones (logIndex, questID).
     -- The engine reads it the same way (RXPGuides.lua:1191: arg1 and arg2 or arg1).
     local questId = number(arg2) or number(arg1)
     if not questId then return end
     local fields = { q = questId, g = questInGuide(questId) }
-    local ok, guid = call("UnitGUID", "npc")
-    local giverKind, giverId
-    if ok then giverKind, giverId = FieldLog.ParseGiver(guid) end
-    if giverKind then
-        fields[giverKind] = giverId
-        local nameOk, name = call("UnitName", "npc")
-        if nameOk and not isSecret(name) and type(name) == "string" and name ~= "" then fields.nm = name end
+    if giverFrameOpen() then
+        local ok, guid = call("UnitGUID", "npc")
+        local giverKind, giverId
+        if ok then giverKind, giverId = FieldLog.ParseGiver(guid) end
+        if giverKind then
+            fields[giverKind] = giverId
+            local nameOk, name = call("UnitName", "npc")
+            if nameOk and not isSecret(name) and type(name) == "string" and name ~= "" then fields.nm = name end
+        end
     end
     WF.Log("quest_accept", fields)
 end
@@ -463,7 +543,13 @@ end
 local function onQuestTurnedIn(questId, xpReward, moneyReward)
     questId = number(questId)
     if not questId then return end
-    lastTurnIn = now()
+    local t = now()
+    local kept = {}
+    for _, at in ipairs(turnIns) do
+        if t - at <= QUEST_XP_WINDOW * 4 then kept[#kept + 1] = at end
+    end
+    kept[#kept + 1] = t
+    turnIns = kept
     WF.Log("quest_turnin", { q = questId, xp = number(xpReward), mo = number(moneyReward),
         g = questInGuide(questId) })
 end
@@ -487,9 +573,13 @@ local function stopXp(reason)
         dt = "UnitXP/UnitXPMax " .. reason .. "; no xp events this session" })
 end
 
--- XP gained since the last sample, or nil. A drop in UnitXP means a level-up
--- wrapped it: the gain is what was left of the old level plus the new value.
--- (A single gain larger than a whole level would be undercounted.)
+-- XP gained since the last sample, and whether that amount is approximate.
+-- The level is sampled with the XP. A level-up (a higher level than the last
+-- sample, or a drop in UnitXP while UnitLevel still lags) means the gain is
+-- what was left of the old level plus the new value. Across more than one
+-- level the levels in between are unknown, so the amount is marked
+-- approximate. (A drop with the level unchanged moves the expected level up
+-- by one, so the later UnitLevel catch-up is not counted twice.)
 local function sampleXp(baseline)
     if xp.disabled then return nil end
     local cur, max = readXp()
@@ -497,11 +587,30 @@ local function sampleXp(baseline)
         stopXp(max)
         return nil
     end
-    local previous, previousMax = xp.cur, xp.max
+    local lvNow = level()
+    local previous, previousMax, previousLv = xp.cur, xp.max, xp.lv
     xp.cur, xp.max = cur, max
-    if baseline or previous == nil then return nil end
-    local delta = cur >= previous and (cur - previous) or (previousMax - previous) + cur
-    if delta > 0 then return delta end
+    if baseline or previous == nil then
+        xp.lv = lvNow
+        return nil
+    end
+    local jumps = (lvNow and previousLv) and (lvNow - previousLv) or 0
+    local delta, approximate
+    if jumps > 0 or cur < previous then
+        delta = (previousMax - previous) + cur
+        approximate = jumps > 1
+        if jumps > 0 then
+            xp.lv = lvNow
+        elseif previousLv then
+            xp.lv = previousLv + 1
+        else
+            xp.lv = lvNow
+        end
+    else
+        delta = cur - previous
+        if lvNow and (not previousLv or lvNow > previousLv) then xp.lv = lvNow end
+    end
+    if delta > 0 then return delta, approximate end
     return nil
 end
 
@@ -509,7 +618,7 @@ local function flushSource(source)
     local bucket = pending[source]
     if not bucket then return end
     pending[source] = nil
-    WF.Log("xp", { a = bucket.a, src = source, s = bucket.s, lv = bucket.lv })
+    WF.Log("xp", { a = bucket.a, src = source, s = bucket.s, lv = bucket.lv, ap = bucket.ap or nil })
 end
 
 local function flushAll()
@@ -522,7 +631,7 @@ end
 -- At most one xp event per second per source: the first gain opens a bucket
 -- that is written XP_COALESCE_SECONDS later with every gain summed. A gain
 -- at another level closes the bucket first, so XP stays with its level.
-local function addXp(source, amount, atLevel)
+local function addXp(source, amount, atLevel, approximate)
     local bucket = pending[source]
     if bucket and bucket.lv ~= atLevel then
         flushSource(source)
@@ -531,28 +640,54 @@ local function addXp(source, amount, atLevel)
     if bucket then
         bucket.a = bucket.a + amount
         bucket.s = bucket.s + 1
+        bucket.ap = bucket.ap or approximate
         return
     end
-    pending[source] = { a = amount, s = 1, lv = atLevel }
+    pending[source] = { a = amount, s = 1, lv = atLevel, ap = approximate }
     local gen = generation
     C_Timer.After(XP_COALESCE_SECONDS, WF:Guard(MODULE_ID, function()
         if gen == generation and pending[source] and pending[source].lv == atLevel then flushSource(source) end
     end))
 end
 
+local function nearTurnIn(at)
+    for _, t in ipairs(turnIns) do
+        if math.abs(t - at) <= QUEST_XP_WINDOW then return true end
+    end
+    return false
+end
+
+-- Classify a held sample and move it into its bucket.
+local function release(sample)
+    if not sample.held then return end
+    sample.held = false
+    for i = #held, 1, -1 do
+        if held[i] == sample then table.remove(held, i) end
+    end
+    addXp(nearTurnIn(sample.at) and "quest" or "other", sample.a, sample.lv, sample.ap)
+end
+
+-- Release every held sample (with the turn-ins seen so far) and write the buckets.
+local function releaseAll()
+    local list = {}
+    for i, sample in ipairs(held) do list[i] = sample end
+    for _, sample in ipairs(list) do release(sample) end
+    flushAll()
+end
+
 local function onXpUpdate(unit)
-    if unit ~= nil and unit ~= "player" then return end
-    local delta = sampleXp(false)
+    if isSecret(unit) or (unit ~= nil and unit ~= "player") then return end
+    local delta, approximate = sampleXp(false)
     if not delta then return end
-    local at, atLevel, gen = now(), level(), generation
-    -- Classify on the next frame, so a QUEST_TURNED_IN that arrives just
-    -- after the XP update still counts. Sources are only quest or other: no
-    -- chat or combat message is parsed, and no non-chat discovery event is
-    -- used by the engine, so exploration XP stays "other".
-    C_Timer.After(0, WF:Guard(MODULE_ID, function()
-        if gen ~= generation then return end
-        local quest = lastTurnIn ~= nil and math.abs(lastTurnIn - at) <= QUEST_XP_WINDOW
-        addXp(quest and "quest" or "other", delta, atLevel)
+    -- Hold the sample for QUEST_XP_WINDOW seconds, then call it quest XP if a
+    -- QUEST_TURNED_IN came within the window before or after it, and "other"
+    -- otherwise. No chat or combat message is parsed and the engine uses no
+    -- non-chat discovery event, so kill and exploration XP are both "other".
+    local sample = { a = delta, at = now(), lv = level(), ap = approximate, held = true }
+    held[#held + 1] = sample
+    local gen = generation
+    C_Timer.After(QUEST_XP_WINDOW, WF:Guard(MODULE_ID, function()
+        if gen == generation then release(sample) end
     end))
 end
 
@@ -584,37 +719,57 @@ end
 -- ---------------------------------------------------------------------------
 -- Errors, blocked actions, self-test
 
+-- True while event is still in the ring (an indexed event that was evicted,
+-- or removed by /wf log clear, must not be updated in place: the update
+-- would be lost).
+local function inRing(event)
+    if not log or log.count == 0 or type(event) ~= "table" then return false end
+    local oldest = log.events[log.head]
+    return type(oldest) == "table" and type(oldest.n) == "number" and type(event.n) == "number"
+        and event.n >= oldest.n and event.n <= log.seq
+end
+
 local function logError(record)
     if type(record) ~= "table" then return end
     local existing = loggedErrors[record]
-    if existing then
+    if existing and inRing(existing) then
         existing.c = record.count
         return
     end
-    local stack = type(record.stack) == "string" and record.stack:sub(1, MAX_STACK) or nil
-    local _, event = WF.Log("error", { msg = tostring(record.message):sub(1, MAX_MESSAGE), st = stack,
+    local stack = type(record.stack) == "string" and trimUtf8(record.stack, MAX_STACK) or nil
+    local _, event = WF.Log("error", { msg = trimUtf8(tostring(record.message), MAX_MESSAGE), st = stack,
         mod = record.module, c = record.count })
-    if event then loggedErrors[record] = event end
+    loggedErrors[record] = event or nil
 end
 
 local function drainErrors()
     for _, record in ipairs(WF:GetErrors()) do logError(record) end
+    if WF.droppedRecord then logError(WF.droppedRecord) end
 end
 
 -- ADDON_ACTION_BLOCKED / ADDON_ACTION_FORBIDDEN (addonName, functionName):
--- only ours. Repeats of the same function raise the count of the first event.
+-- only ours. Repeats of the same function raise the count of its event while
+-- that event is in the ring; otherwise a new event starts. The index is
+-- bounded (MAX_BLOCKED_INDEX entries, then it starts over).
 local function onBlocked(event, blockedAddon, functionName)
     if isSecret(blockedAddon) or blockedAddon ~= addonName then return end
     local fn = clean(functionName)
     local key = event .. "\0" .. tostring(fn)
     local existing = blockedIndex[key]
-    if existing then
+    if existing and inRing(existing) then
         existing.c = (existing.c or 1) + 1
         return
     end
     local _, logged = WF.Log("blocked", { fn = fn, ad = blockedAddon,
         ev = event == "ADDON_ACTION_FORBIDDEN" and "forbidden" or "blocked", c = 1 })
-    if logged then blockedIndex[key] = logged end
+    if not logged then return end
+    if not existing then
+        if blockedEntries >= MAX_BLOCKED_INDEX then
+            blockedIndex, blockedEntries = {}, 0
+        end
+        blockedEntries = blockedEntries + 1
+    end
+    blockedIndex[key] = logged
 end
 
 --- Log a finished self-test report (WayfinderData.selftest's shape): one
@@ -626,7 +781,7 @@ function WF.LogSelfTest(report)
     for _, result in ipairs(type(report.results) == "table" and report.results or {}) do
         if type(result) == "table" and result.status ~= "pass" then
             local detail = clean(result.detail)
-            if type(detail) == "string" and #detail > MAX_DETAIL then detail = detail:sub(1, MAX_DETAIL) end
+            if type(detail) == "string" then detail = trimUtf8(detail, MAX_DETAIL) end
             if type(detail) == "table" then detail = nil end
             WF.Log("probe", { id = result.id, st = result.status, dt = detail })
         end
@@ -645,19 +800,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Commands
-
-local function trimUtf8(text, limit)
-    if #text <= limit then return text end
-    text = text:sub(1, limit)
-    -- Drop a multi-byte character cut in half by the limit.
-    local lead = text:find("[\192-\255][\128-\191]*$")
-    if lead then
-        local byte = text:byte(lead)
-        local size = byte >= 240 and 4 or byte >= 224 and 3 or 2
-        if #text - lead + 1 < size then text = text:sub(1, lead - 1) end
-    end
-    return text
-end
 
 local function slashNote(rest)
     local text = type(rest) == "string" and rest:match("^%s*(.-)%s*$") or ""
@@ -688,7 +830,7 @@ local function slashLog(rest)
         printStatus()
     elseif word == "clear" then
         log.events, log.head, log.count, log.dropped = {}, 1, 0, 0
-        loggedErrors, blockedIndex = {}, {}
+        loggedErrors, blockedIndex, blockedEntries = {}, {}, 0
         logSession(false)
         WF.Print("field log cleared. /reload to write the change to disk.")
     elseif word == "cap" then
@@ -722,7 +864,7 @@ local function onEvent(_, event, ...)
     elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
         onBlocked(event, ...)
     elseif event == "PLAYER_LOGOUT" then
-        flushAll()
+        releaseAll()
     end
 end
 
@@ -755,14 +897,20 @@ WF:RegisterModule(MODULE_ID, {
         if not log then error("field log: saved variables are not loaded", 0) end
         generation = generation + 1
         active = true
-        sessionStart = now()
-        pending, xp, lastTurnIn, blockedIndex = {}, {}, nil, {}
+        pending, xp, turnIns, held = {}, {}, {}, {}
         guideSet, guideSetFor = nil, nil
-        logSession(true)
+        -- The name option may have been turned off while this module was off.
+        if not WF:GetOption(INCLUDE_NAME_OPTION) then FieldLog.ScrubNames(log) end
+        if not sessionStarted then
+            sessionStarted = true
+            sessionStart = now()
+            logSession(true)
+        end
         sampleXp(true)
         drainErrors()
         WF:On("error", logError)
         WF:On("selftest", onSelfTest)
+        WF:On("option", onOption)
         if not frame then frame = CreateFrame("Frame") end
         frame:SetScript("OnEvent", WF:Guard(MODULE_ID, onEvent))
         for _, event in ipairs(EVENTS) do frame:RegisterEvent(event) end
@@ -774,13 +922,13 @@ WF:RegisterModule(MODULE_ID, {
         end
     end,
     OnDisable = function()
-        if active and log then flushAll() end
+        if active and log then releaseAll() end
         active = false
         generation = generation + 1
-        pending = {}
-        sessionEvent = nil
+        pending, held = {}, {}
         WF:Off("error", logError)
         WF:Off("selftest", onSelfTest)
+        WF:Off("option", onOption)
         if frame then
             frame:UnregisterAllEvents()
             frame:SetScript("OnEvent", nil)

@@ -191,7 +191,11 @@ describe("Modules/SelfTest.lua", function()
 
   it("writes a serializable report with every probe id, across several frames", function()
     start()
+    local fired = {}
+    WF:On("selftest", function(r) fired[#fired + 1] = r end)
     local report, by_id = run()
+    assert.are.equal(1, #fired) -- the field log hears about the finished run
+    assert.are.equal(report, fired[1])
     local ok, where = serializable(report)
     assert.is_true(ok, where)
     assert.is_true(report.complete)

@@ -138,7 +138,21 @@ function WF:ReportError(moduleId, message, stack)
     if type(handler) == "function" then
         pcall(handler, stack and (message .. "\n" .. stack) or message)
     end
-    if record then self:Fire("error", record) end
+    if record then
+        self:Fire("error", record)
+    else
+        -- Cap reached: one synthetic record (kept out of WF.errors) whose
+        -- count is the number of errors not recorded, so the log shows it.
+        local dropped = self.droppedRecord
+        if not dropped then
+            local text = ("further errors not recorded (cap of %d distinct errors reached)"):format(MAX_ERRORS)
+            dropped = { message = text, module = CORE_ID, count = 0, synthetic = true,
+                time = type(GetTime) == "function" and GetTime() or 0 }
+            self.droppedRecord = dropped
+        end
+        dropped.count = self.droppedErrors
+        self:Fire("error", dropped)
+    end
     return record, message
 end
 
@@ -325,10 +339,13 @@ local RESERVED_SLASH = {
 local function checkOptions(id, def)
     local list = def.options or {}
     assert(type(list) == "table" and #list <= MAX_MODULE_OPTIONS, "WF:RegisterModule: bad options list")
+    local seen = {}
     for _, option in ipairs(list) do
         assert(type(option) == "table" and type(option.key) == "string" and option.key:match("^%a[%w_]*$"),
             "WF:RegisterModule: option key must be a plain word")
-        assert(not optionDefs[option.key], "WF:RegisterModule: option '" .. option.key .. "' is taken")
+        assert(not optionDefs[option.key] and not seen[option.key],
+            "WF:RegisterModule: option '" .. option.key .. "' is taken")
+        seen[option.key] = true
         assert(type(option.title) == "string", "WF:RegisterModule: option title must be a string")
         assert(type(option.default) == "boolean", "WF:RegisterModule: option default must be a boolean")
     end
