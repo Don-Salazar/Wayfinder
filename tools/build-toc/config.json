@@ -26,7 +26,8 @@
     { "path": "Modules/MenuCompat.lua", "after": "Communications.lua", "reason": "Menu adapter replacing LibUIDropDownMenu (GPL); loads before RXPGuides.lua, whose addon:ShowMenu/CloseMenu call it." },
     { "path": "Modules/MinimapButton.lua", "after": "Communications.lua", "reason": "Own minimap button replacing LibDataBroker-1.1 + LibDBIcon-1.0; loads before SettingsPanel.lua, whose UpdateMinimapButton calls it." },
     { "path": "Modules/Core.lua", "after": "ItemUpgrades.lua", "reason": "Wayfinder module registry, options page, /wf routing, guarded calls, chunked runner. Loads last: at file load it only needs addon:NewModule (Locale.lua); it reads addon.title and the options panel at OnInitialize, after the main addon has initialised." },
-    { "path": "Modules/SelfTest.lua", "after": "Modules/Core.lua", "reason": "/wf selftest; registers itself with addon.WF at file load, so it loads after Modules/Core.lua." }
+    { "path": "Modules/SelfTest.lua", "after": "Modules/Core.lua", "reason": "/wf selftest; registers itself with addon.WF at file load, so it loads after Modules/Core.lua." },
+    { "path": "Modules/DataDump.lua", "after": "Modules/SelfTest.lua", "reason": "/wf dump (PIPELINE P2 data dump); registers itself with addon.WF at file load, so it loads after Modules/Core.lua. Reads optional development seeds (addon.WF.dumpSeeds, dist-only) lazily at dump time." }
   ],
   "ship": {
     "extraFiles": ["Bindings.xml", "LICENSE", "NOTICE.md"],

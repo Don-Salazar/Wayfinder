@@ -42,3 +42,4 @@ Guides/Talents/classic.xml
 ItemUpgrades.lua
 Modules/Core.lua
 Modules/SelfTest.lua
+Modules/DataDump.lua

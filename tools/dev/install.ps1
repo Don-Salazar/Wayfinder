@@ -21,14 +21,24 @@
   Usage (from anywhere; needs Node and `npm ci` done in the repo):
     powershell -ExecutionPolicy Bypass -File tools\dev\install.ps1
     powershell -ExecutionPolicy Bypass -File tools\dev\install.ps1 -WowRoot "D:\Games\World of Warcraft"
+    powershell -ExecutionPolicy Bypass -File tools\dev\install.ps1 -DevSeeds
 
 .PARAMETER WowRoot
   The World of Warcraft folder (the one that contains _forever_). Default: the
   "WoW install" row of docs\ENV.md.
+
+.PARAMETER DevSeeds
+  Opt-in, local development only. After the build, runs tools/dump-seeds
+  (`npm run dump:seeds`), which writes dist\Wayfinder\Modules\DumpSeeds.lua
+  from the private research CSVs and lists it in dist\Wayfinder\Wayfinder.toc,
+  so /wf dump also reads the seeded spell and item IDs. Without
+  docs\research\csv it does nothing and the install goes on without seeds.
+  Never publish a build installed this way.
 #>
 [CmdletBinding()]
 param(
-    [string]$WowRoot
+    [string]$WowRoot,
+    [switch]$DevSeeds
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
@@ -79,6 +89,14 @@ try {
     if ($LASTEXITCODE -ne 0) { Fail 'build-addon failed (see above); nothing was installed.' 4 }
     $files = @(& node $tsx 'tools/build-toc/index.ts' --list-files)
     if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) { Fail 'build-toc --list-files failed.' 4 }
+    if ($DevSeeds) {
+        & node $tsx 'tools/dump-seeds/index.ts'
+        if ($LASTEXITCODE -ne 0) { Fail 'dump-seeds failed (see above); nothing was installed.' 4 }
+        if (Test-Path -LiteralPath (Join-Path $Dist 'Modules\DumpSeeds.lua') -PathType Leaf) {
+            $files += 'Modules/DumpSeeds.lua'
+            Write-Host 'Development seeds included (Modules/DumpSeeds.lua). Do not publish this build.'
+        }
+    }
 }
 finally {
     Pop-Location
