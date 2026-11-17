@@ -1,0 +1,25 @@
+{
+  "name": "wayfinder-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node/TypeScript tooling for the Wayfinder addon (not shipped in the addon).",
+  "license": "CC-BY-NC-SA-4.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"tools/**/*.test.ts\"",
+    "research:convert": "tsx tools/research-to-md/index.ts",
+    "check:manifests": "tsx tools/check-manifests/index.ts",
+    "check:origins": "tsx tools/check-origins/index.ts",
+    "inventory:ids": "tsx tools/inventory-ids/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "fflate": "0.8.3",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3"
+  }
+}

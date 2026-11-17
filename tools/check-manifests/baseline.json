@@ -1,0 +1,138 @@
+{
+  "description": "Known findings in the unmodified upstream tree (RXPGuides 22e6ce26). New findings fail the check.",
+  "findings": [
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "Guides/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"Guides/GuideList-Mainline.xml\" vs \"Guides/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "Guides/GuideList-mainline.xml",
+      "ref": "Guides/Retail/Endgame/Midnight/Storylines.Lua",
+      "note": "case differs from disk: \"Guides/Retail/Endgame/Midnight/Storylines.Lua\" vs \"Guides/Retail/Endgame/Midnight/Storylines.lua\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "Guides/GuideList-mainline.xml",
+      "ref": "Guides/Retail/Collectables/Skyriding Glyphs.Lua",
+      "note": "case differs from disk: \"Guides/Retail/Collectables/Skyriding Glyphs.Lua\" vs \"Guides/Retail/Collectables/Skyriding Glyphs.lua\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "Guides/GuideList-mainline.xml",
+      "ref": "Guides/Retail/Collectables/Knowledge Treasures.Lua",
+      "note": "case differs from disk: \"Guides/Retail/Collectables/Knowledge Treasures.Lua\" vs \"Guides/Retail/Collectables/Knowledge Treasures.lua\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "Guides/GuideList-mainline.xml",
+      "ref": "Guides/Retail/Collectables/Allied Races.Lua",
+      "note": "case differs from disk: \"Guides/Retail/Collectables/Allied Races.Lua\" vs \"Guides/Retail/Collectables/Allied Races.lua\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "Guides/GuideList-mainline.xml",
+      "ref": "Guides/Retail/Collectables/Lorewalking.Lua",
+      "note": "case differs from disk: \"Guides/Retail/Collectables/Lorewalking.Lua\" vs \"Guides/Retail/Collectables/Lorewalking.lua\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "lang/Guides-zhCN/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"lang/Guides-zhCN/GuideList-Mainline.xml\" vs \"lang/Guides-zhCN/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "lang/Guides-deDE/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"lang/Guides-deDE/GuideList-Mainline.xml\" vs \"lang/Guides-deDE/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "lang/Guides-esES/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"lang/Guides-esES/GuideList-Mainline.xml\" vs \"lang/Guides-esES/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "lang/Guides-frFR/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"lang/Guides-frFR/GuideList-Mainline.xml\" vs \"lang/Guides-frFR/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "standard",
+      "kind": "case",
+      "from": "RXPGuides.toc",
+      "ref": "lang/Guides-ptBR/GuideList-Mainline.xml",
+      "note": "case differs from disk: \"lang/Guides-ptBR/GuideList-Mainline.xml\" vs \"lang/Guides-ptBR/GuideList-mainline.xml\""
+    },
+    {
+      "gameType": "camelot",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "vanilla",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "vanilla",
+      "kind": "case",
+      "from": "DB/classic.xml",
+      "ref": "DB/classic/statWeights.lua",
+      "note": "case differs from disk: \"DB/classic/statWeights.lua\" vs \"DB/classic/StatWeights.lua\""
+    },
+    {
+      "gameType": "tbc",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "wrath",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "cata",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    },
+    {
+      "gameType": "mists",
+      "kind": "case",
+      "from": "UI/includes.xml",
+      "ref": "V2\\Manifest.xml",
+      "note": "case differs from disk: \"UI/V2/Manifest.xml\" vs \"UI/V2/manifest.xml\""
+    }
+  ]
+}
