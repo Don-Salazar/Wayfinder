@@ -98,6 +98,23 @@ licence sweep, tooling). See the P0 gate report in `docs/reports/`.
 | D3.4 | 19 file-name case mismatches in upstream manifests (for example `V2\Manifest.xml` vs `manifest.xml`). Harmless on Windows; untested elsewhere | `tools/check-manifests/baseline.json` | CC | Recorded as a baseline; fix only if a client rejects them |
 | D3.5 | RESEARCH_INDEX row counts differ from the workbook for Flight paths (33 vs 34), Zone IDs (30 vs 31) and Class abilities (359 vs 358); four tabs have no count; a hidden tab "Dropdown options" is not listed | `npm run research:convert` output | Don | Informational. RESEARCH_INDEX not edited |
 
+## E. Raised during P1 (2026-11-17)
+
+P1 state: generated Forever-only TOC, import path removed, licence-problem
+components no longer loaded, rule conflicts removed, rebrand applied at build
+time (`npm run build:addon`). All merged to `main`, reviewed by a second
+agent, CI green. Untested in client; test card T1 is in `docs/TEST_CARDS.md`.
+
+| # | Question | Owner | Plan |
+|---|---|---|---|
+| E1 | Does `QuestieLoader:ImportModule("QuestieDB")`, called at run time by unchanged upstream code in `DB/questDB.lua` and `functions.lua` when the player has Questie, count as Questie's public API (CLAUDE.md allows only that)? No Questie data is copied | Don | Decide: keep (decision A6), or remove the two call sites. Allowlisted in `tools/check-origins/origins.json` until then |
+| E2 | Which menu functions does Forever have: `EasyMenu`, `MenuUtil`, `UIDropDownMenu_*`? Does the `UIDropDownMenuTemplate` frame template exist? | Don (T1 rows 8, 10), then selftest | `Modules/MenuCompat.lua` detects at run time and prints one line if none exists |
+| E3 | Does Forever have `C_EncodingUtil` (party step-sharing now depends on it), `C_Spell.GetSpellCooldownDuration` and `Cooldown:SetCooldownFromDurationObject` (item-button cooldown swipes)? | selftest (P2) | Each feature is silently off when the function is missing |
+| E4 | Upstream guide steps that skipped by hearthstone cooldown (`.cooldown`) or by buff (`.aura`) no longer skip themselves. Which steps does this make awkward on the Troll route? | Don (T1), then recording | Note them on T1; rework those steps in our own guide layer in P3 without reading combat state |
+| E5 | Party step-sharing payloads are no longer compatible with RestedXP clients, and Wayfinder only recognises other Wayfinder clients | Don | Accept, or drop party sync entirely (decision A3) |
+| E6 | Unloaded upstream files that still contain removed features (other-game TOCs, `UI/V2/GuideImporter.lua`, `HSBatching.lua`, the dropped libraries) remain in the repo so upstream syncs stay simple. They are not copied into the built addon | Don | Accept, or delete them and take the merge cost |
+| E7 | Local `luacheck` and `busted` cannot run on Don's PC (`lua.exe` and Python deleted, see D3.3). All Lua linting and tests run only in GitHub CI | Don | Fix the PC as in D3.3 |
+
 ## Closed
 
 | # | Question | Answer | Evidence | Date |
