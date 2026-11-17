@@ -1,0 +1,64 @@
+# Wayfinder CI: lint and tests on every push and pull request.
+# (Upstream's package.yml handles releases and is left untouched.)
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lua:
+    name: Lua (luacheck + busted, Lua 5.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # The client runs Lua 5.1; the compile spec asserts PUC-Rio 5.1.
+      - name: Install Lua 5.1.5
+        uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "5.1.5"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@v6
+
+      # Same versions as tools/dev/setup-lua.ps1, so local and CI agree.
+      # (luarocks install takes one rock per call.)
+      - name: Install luacheck and busted
+        run: |
+          luarocks install luacheck 1.2.0-1
+          luarocks install busted 2.2.0-1
+
+      - name: luacheck
+        run: luacheck .
+
+      - name: busted
+        run: busted
+
+  node:
+    name: Node tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out (full history, for the origin check)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:manifests
+      - run: npm run check:origins

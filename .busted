@@ -1,0 +1,13 @@
+-- busted configuration. Run from the repo root:  busted
+-- Specs live in tests/spec/ and end in _spec.lua. `require("wow-api")` and
+-- `require("support.<name>")` resolve through lpath below.
+return {
+  _all = {
+    lpath = "tests/?.lua;tests/?/init.lua",
+  },
+  default = {
+    ROOT = { "tests/spec" },
+    pattern = "_spec",
+    verbose = true,
+  },
+}
