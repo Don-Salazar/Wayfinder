@@ -18,7 +18,6 @@ log from real play (P3 onward); **CC** = Claude Code, from source or tooling.
 | A4 | Whether to accept community recordings, and on what terms | DESIGN § 7 | |
 | A5 | When to start Alliance and Skyborne | DESIGN § 7 | |
 | A6 | Optional Questie interop, or fully independent | DESIGN § 7 | |
-| A7 | May the research workbook and its conversions be published in the public repo? | 2026-11-16 | Most tabs are lists compiled from Wowhead; CLAUDE.md forbids copying compiled lists from Wowhead. Nothing is pushed until Don answers |
 | A8 | Confirm WoW install path and account folder in `docs/ENV.md` | 2026-11-16 | Found on disk, not yet confirmed |
 
 ## B. Only the game can answer (RESEARCH_INDEX § Open items)
@@ -105,3 +104,8 @@ licence sweep, tooling). See the P0 gate report in `docs/reports/`.
 |---|---|---|---|---|
 | — | Does the public repo's TOC carry a 16001 interface line? | Yes | `RXPGuides.toc:1` at upstream commit `22e6ce26` lists `16001` | 2026-11-16 |
 | — | Is there a separate Forever guide folder upstream? | Yes | `Guides/forever/`, `DB/forever/`, `Guides/GuideList-forever.xml` exist at `22e6ce26` | 2026-11-16 |
+| A7 | May the research workbook and its conversions be public? | No. `docs/research/` is git-ignored and was removed from the unpushed commits; the files stay on Don's disk | Don, 2026-11-17 | 2026-11-17 |
+| D1.1–D1.6, D1.9, D2.2, D2.3, D2.6 | Remove the GPL file and library, LibDeflate, LibDataBroker, the vendor-treasure module, the paid import path, timer-driven targeting and the combat-state reads? | Yes, all, each as its own reviewed commit in P1 | Don, 2026-11-17 | 2026-11-17 |
+| D2.1 | How does Wayfinder coexist with RestedXP given the guide files' global calls? | A script rewrites the two global names in upstream guide files at every upstream sync | Don, 2026-11-17 | 2026-11-17 |
+| D3.1 | Upstream's release workflow on the fork | Removed from the fork (`.github/workflows/package.yml`) before the first push | Gate report § 6 item 11, approved by Don 2026-11-17 | 2026-11-17 |
+| D3.2 | May Claude Code push to the fork? | Yes | Don, 2026-11-17 | 2026-11-17 |
