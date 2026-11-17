@@ -43,6 +43,11 @@ export interface TocConfig {
   addon: string;
   gameType: GameType;
   header: Record<string, string>;
+  /**
+   * Optional; names appended (comma-separated, in order) to a header value after "inherit" is resolved,
+   * e.g. our own SavedVariables after upstream's. Each key must also be set in "header".
+   */
+  headerAppend?: Record<string, string[]>;
   drop: DropEntry[];
   /** Optional; entries apply in order, so one may anchor on a file inserted before it. */
   insert?: InsertEntry[];
@@ -68,6 +73,15 @@ export function validateConfig(c: TocConfig): void {
     if (/^X-/i.test(k)) err(`header key "${k}": X- lines are not carried over`);
     if (/^Interface-/i.test(k)) err(`header key "${k}": per-flavour Interface lines are not carried over`);
     if (typeof v !== "string" || !v.trim() || /[\r\n]/.test(v)) err(`header "${k}" must be a one-line, non-empty string`);
+  }
+  if (c.headerAppend !== undefined) {
+    if (!c.headerAppend || typeof c.headerAppend !== "object" || Array.isArray(c.headerAppend)) err(`"headerAppend" must be an object`);
+    for (const [k, names] of Object.entries(c.headerAppend)) {
+      if (!(k in c.header)) err(`headerAppend "${k}" is not a key of "header"`);
+      if (!Array.isArray(names) || !names.length) err(`headerAppend "${k}" must be a non-empty array`);
+      for (const n of names) if (typeof n !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) err(`headerAppend "${k}": "${String(n)}" is not a plain name`);
+      if (new Set(names).size !== names.length) err(`headerAppend "${k}" lists a name twice`);
+    }
   }
   if (!Array.isArray(c.drop)) err(`"drop" must be an array`);
   const seen = new Set<string>();
@@ -127,11 +141,20 @@ export function buildToc(upstreamText: string, config: TocConfig, commit: string
 
   const header: string[] = [];
   for (const [k, v] of Object.entries(config.header)) {
+    let value = v;
     if (v === INHERIT) {
       const up = meta.get(k.toLowerCase());
       if (up === undefined) throw new Error(`build-toc: header "${k}" is "inherit" but ${config.upstreamToc} has no "## ${k}" line`);
-      header.push(`## ${k}: ${up}`);
-    } else header.push(`## ${k}: ${v}`);
+      value = up;
+    }
+    const extra = config.headerAppend?.[k] ?? [];
+    if (extra.length) {
+      const have = new Set(value.split(",").map((n) => n.trim().toLowerCase()).filter(Boolean));
+      const clash = extra.filter((n) => have.has(n.toLowerCase()));
+      if (clash.length) throw new Error(`build-toc: headerAppend "${k}" repeats ${clash.join(", ")}, already in the header value`);
+      value = [value.trim(), ...extra].filter(Boolean).join(", ");
+    }
+    header.push(`## ${k}: ${value}`);
   }
 
   const drops = new Map(config.drop.map((d) => [pathKey(d.path), { entry: d, used: false }]));

@@ -152,3 +152,30 @@ function shippedFilesWith(files: Record<string, string>, index: FileIndex, c: To
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+test("buildToc: headerAppend adds our names after the inherited or literal value", () => {
+  const r = buildToc(
+    UP,
+    cfg({
+      header: { Interface: "16001", SavedVariables: "inherit", SavedVariablesPerCharacter: "OurOnly" },
+      headerAppend: { SavedVariables: ["WayData"], SavedVariablesPerCharacter: ["WayChar", "WayMore"] },
+    }),
+    SHA,
+  );
+  const lines = r.text.split("\n");
+  assert.equal(lines[2], "## SavedVariables: UpDB, UpSettings, WayData");
+  assert.equal(lines[3], "## SavedVariablesPerCharacter: OurOnly, WayChar, WayMore");
+  // A name already present upstream is an error, not a silent duplicate.
+  assert.throws(
+    () => buildToc(UP, cfg({ headerAppend: { SavedVariables: ["updb"] } }), SHA),
+    /repeats updb/,
+  );
+});
+
+test("validateConfig: headerAppend must name header keys and plain names", () => {
+  assert.throws(() => validateConfig(cfg({ headerAppend: { Notes: ["X"] } })), /not a key of "header"/);
+  assert.throws(() => validateConfig(cfg({ headerAppend: { SavedVariables: [] } })), /non-empty array/);
+  assert.throws(() => validateConfig(cfg({ headerAppend: { SavedVariables: ["a b"] } })), /not a plain name/);
+  assert.throws(() => validateConfig(cfg({ headerAppend: { SavedVariables: ["A", "A"] } })), /twice/);
+  validateConfig(cfg({ headerAppend: { SavedVariables: ["WayfinderData"] } }));
+});

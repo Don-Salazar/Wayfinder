@@ -140,6 +140,11 @@ test("xml, Bindings.xml and TOC SavedVariables", () => {
     r.toc(toc),
     `# from RXPGuides.toc\r\n## Notes: Based on RestedXP Guides\r\n## SavedVariables: WFData, WFDB, WFSettings\r\n## SavedVariablesPerCharacter: WFCData, WFCComms\r\nRXPGuides.lua\r\n`,
   );
+  // Our own saved variables (appended by tools/build-toc) carry no RXP and stay as they are.
+  assert.equal(
+    r.toc(`## SavedVariables: RXPData, WayfinderData\n## SavedVariablesPerCharacter: RXPCData, WayfinderCharData\n`),
+    `## SavedVariables: WFData, WayfinderData\n## SavedVariablesPerCharacter: WFCData, WayfinderCharData\n`,
+  );
 });
 
 test("line counts never change (long strings, CRLF)", () => {

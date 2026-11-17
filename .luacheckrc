@@ -73,6 +73,10 @@ local wow_read_globals = {
   -- Modules/MenuCompat.lua (read through _G and feature-detected; any may be nil)
   "Menu", "MenuUtil", "MenuResponse", "EasyMenu", "CloseDropDownMenus",
   "UIDropDownMenu_Initialize", "UIDropDownMenu_AddButton", "ToggleDropDownMenu",
+  -- Modules/Core.lua
+  "GetAddOnMetadata", "DEFAULT_CHAT_FRAME", "geterrorhandler", "debugprofilestop",
+  -- Modules/SelfTest.lua (most probes look names up dynamically through _G)
+  "C_Container", "GetServerTime",
 }
 stds.wow = { read_globals = wow_read_globals }
 
@@ -94,6 +98,10 @@ files["Scripts/**"]    = upstream_only
 -- over the Guides/** section above; luacheck applies more specific path
 -- sections after less specific ones.
 files["Guides/wf/**"] = { enable = { "." } }
+
+-- Our saved variables (declared in Wayfinder.toc through tools/build-toc).
+-- Only the core module assigns them; other files reach them through addon.WF.
+files["Modules/Core.lua"] = { globals = { "WayfinderData", "WayfinderCharData" } }
 
 -- Busted specs, spec support and the WoW API stub. Full Lua 5.1 (io, os,
 -- debug are fine here: tests run outside the client). The stub sets its

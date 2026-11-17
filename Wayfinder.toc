@@ -5,8 +5,8 @@
 ## Author: Wayfinder contributors
 ## Version: 0.1.0-dev
 ## OptionalDeps: Questie
-## SavedVariables: RXPData, RXPDB, RXPSettings
-## SavedVariablesPerCharacter: RXPCData, RXPCTrackingData, RXPCComms, RXPCSettings
+## SavedVariables: RXPData, RXPDB, RXPSettings, WayfinderData
+## SavedVariablesPerCharacter: RXPCData, RXPCTrackingData, RXPCComms, RXPCSettings, WayfinderCharData
 
 libs\embeds_Mainline.xml
 locale\locales.xml
@@ -40,3 +40,5 @@ lang/Guides-ptBR/GuideList-forever.xml
 Talents.lua
 Guides/Talents/classic.xml
 ItemUpgrades.lua
+Modules/Core.lua
+Modules/SelfTest.lua

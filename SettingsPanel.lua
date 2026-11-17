@@ -103,6 +103,7 @@ function addon.settings.ChatCommand(input)
     if not input then addon.settings.OpenSettings() end
 
     input = input:trim()
+    if addon.WF and addon.WF:HandleSlash(input) then return end -- WF: our modules claim their subcommands first
     -- WF: removed the "/rxp import" subcommand (guide importer removed)
     if input == "debug" then
         addon.settings.profile.debug = not addon.settings.profile.debug

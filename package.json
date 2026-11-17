@@ -19,7 +19,8 @@
     "inventory:ids": "tsx tools/inventory-ids/index.ts",
     "build:addon": "tsx tools/build-addon/index.ts",
     "check:addon": "tsx tools/build-addon/index.ts --check-manifests --check-residue --check-lines",
-    "lint:guides": "tsx tools/lint-guides/index.ts"
+    "lint:guides": "tsx tools/lint-guides/index.ts",
+    "savedvars": "tsx tools/read-savedvars/index.ts"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

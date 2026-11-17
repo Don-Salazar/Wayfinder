@@ -1,5 +1,5 @@
 {
-  "description": "Input for tools/build-toc. Wayfinder.toc is generated from upstream's RXPGuides.toc: the file lines that load for gameType, minus 'drop', plus our own files from 'insert' (each written right after its 'after' line, in list order), under the header below. Header values are written in this order; the value \"inherit\" copies upstream's line unchanged. Upstream metadata not named here (X-*, Interface-*, Title-*, Category*) is not carried over. OptionalDeps drops upstream's RXPGuides_Themes (RestedXP companion addon; Wayfinder does not load its themes). SavedVariables keep upstream names here so this TOC matches the repo Lua; tools/build-addon renames them in dist/Wayfinder/Wayfinder.toc together with the Lua (rebrand.json).",
+  "description": "Input for tools/build-toc. Wayfinder.toc is generated from upstream's RXPGuides.toc: the file lines that load for gameType, minus 'drop', plus our own files from 'insert' (each written right after its 'after' line, in list order), under the header below. Header values are written in this order; the value \"inherit\" copies upstream's line unchanged. Upstream metadata not named here (X-*, Interface-*, Title-*, Category*) is not carried over. OptionalDeps drops upstream's RXPGuides_Themes (RestedXP companion addon; Wayfinder does not load its themes). SavedVariables keep upstream names here so this TOC matches the repo Lua; tools/build-addon renames them in dist/Wayfinder/Wayfinder.toc together with the Lua (rebrand.json). headerAppend adds our own SavedVariables after the inherited ones (names without RXP, so build-addon leaves them unchanged).",
   "upstreamToc": "RXPGuides.toc",
   "output": "Wayfinder.toc",
   "addon": "Wayfinder",
@@ -14,13 +14,19 @@
     "SavedVariables": "RXPData, RXPDB, RXPSettings",
     "SavedVariablesPerCharacter": "inherit"
   },
+  "headerAppend": {
+    "SavedVariables": ["WayfinderData"],
+    "SavedVariablesPerCharacter": ["WayfinderCharData"]
+  },
   "drop": [
     { "path": "CptStadicsVendorTreasures.lua", "reason": "Cpt. Stadics' Vendor Treasures is CC BY-NC 3.0 third-party Classic vendor data; owner decided 2026-11-17 not to ship it. Every caller already checks addon.VendorTreasures." },
     { "path": "HSBatching.lua", "reason": "Hearthstone batching hooks item-use and spell-cast functions at file load and calls ConfirmBinder() from an OnUpdate script without a player click (UPSTREAM_MAP B18 A3/H1); owner approved removal 2026-11-17. Its options and batchSize default are removed from SettingsPanel.lua; addon.isCastingHS is now always nil (read nil-safely in Targeting.lua)." }
   ],
   "insert": [
     { "path": "Modules/MenuCompat.lua", "after": "Communications.lua", "reason": "Menu adapter replacing LibUIDropDownMenu (GPL); loads before RXPGuides.lua, whose addon:ShowMenu/CloseMenu call it." },
-    { "path": "Modules/MinimapButton.lua", "after": "Communications.lua", "reason": "Own minimap button replacing LibDataBroker-1.1 + LibDBIcon-1.0; loads before SettingsPanel.lua, whose UpdateMinimapButton calls it." }
+    { "path": "Modules/MinimapButton.lua", "after": "Communications.lua", "reason": "Own minimap button replacing LibDataBroker-1.1 + LibDBIcon-1.0; loads before SettingsPanel.lua, whose UpdateMinimapButton calls it." },
+    { "path": "Modules/Core.lua", "after": "ItemUpgrades.lua", "reason": "Wayfinder module registry, options page, /wf routing, guarded calls, chunked runner. Loads last: at file load it only needs addon:NewModule (Locale.lua); it reads addon.title and the options panel at OnInitialize, after the main addon has initialised." },
+    { "path": "Modules/SelfTest.lua", "after": "Modules/Core.lua", "reason": "/wf selftest; registers itself with addon.WF at file load, so it loads after Modules/Core.lua." }
   ],
   "ship": {
     "extraFiles": ["Bindings.xml", "LICENSE", "NOTICE.md"],

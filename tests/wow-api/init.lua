@@ -171,6 +171,100 @@ function M.set_time(seconds)
   state.now = seconds
 end
 
+--- Run one client frame: advance the clock by 1/60 s and run only the timers
+--- that were already scheduled and fall due (C_Timer.After(0, fn) from inside
+--- a callback runs on the next frame, as in the client).
+function M.next_frame()
+  local target = state.now + 1 / 60
+  local due = {}
+  for _, timer in ipairs(state.timers) do
+    if timer._due <= target then due[#due + 1] = timer end
+  end
+  table.sort(due, function(a, b)
+    if a._due ~= b._due then return a._due < b._due end
+    return a._seq < b._seq
+  end)
+  for _, timer in ipairs(due) do
+    for i, t in ipairs(state.timers) do
+      if t == timer then table.remove(state.timers, i) break end
+    end
+  end
+  state.now = target
+  for _, timer in ipairs(due) do
+    if not timer._cancelled then timer._callback() end
+  end
+  return #due
+end
+
+--- Number of timers waiting to run.
+function M.pending_timers()
+  return #state.timers
+end
+
+-- debugprofilestop(): milliseconds. Each call adds `profile_step` ms, so a
+-- spec can make every step of a time-budgeted loop "cost" something.
+local function debugprofilestop()
+  state.cpu = state.cpu + state.profile_step
+  return state.now * 1000 + state.cpu
+end
+
+function M.set_profile_step(ms)
+  state.profile_step = ms
+end
+
+-- ---------------------------------------------------------------------------
+-- Errors and chat output
+
+--- geterrorhandler(): the default handler records each message.
+local function geterrorhandler()
+  return function(message)
+    state.errors[#state.errors + 1] = message
+  end
+end
+
+--- Messages that reached the default error handler.
+function M.errors()
+  return state.errors
+end
+
+local function debugstack(level)
+  return debug.traceback("", (level or 1) + 1)
+end
+
+local chat_frame = {
+  AddMessage = function(_, message)
+    state.chat[#state.chat + 1] = message
+  end,
+}
+
+--- Lines written to DEFAULT_CHAT_FRAME.
+function M.chat()
+  return state.chat
+end
+
+--- True if any chat line contains `text` (plain find).
+function M.chat_contains(text)
+  for _, line in ipairs(state.chat) do
+    if line:find(text, 1, true) then return true end
+  end
+  return false
+end
+
+-- ---------------------------------------------------------------------------
+-- Addon metadata (TOC fields), for C_AddOns.GetAddOnMetadata
+
+M.default_metadata = { Version = "0.1.0-dev", Title = "Wayfinder" }
+
+function M.set_metadata(fields)
+  state.metadata = fields
+end
+
+local C_AddOns = {
+  GetAddOnMetadata = function(_, field)
+    return state.metadata[field]
+  end,
+}
+
 -- ---------------------------------------------------------------------------
 -- Combat lockdown (a flag only; we never model combat itself)
 
@@ -236,7 +330,20 @@ local function api()
     InCombatLockdown = InCombatLockdown,
     WOW_PROJECT_ID = M.WOW_PROJECT_CAMELOT,
     WOW_PROJECT_CAMELOT = M.WOW_PROJECT_CAMELOT,
+    debugprofilestop = debugprofilestop,
+    geterrorhandler = geterrorhandler,
+    debugstack = debugstack,
+    DEFAULT_CHAT_FRAME = chat_frame,
+    C_AddOns = C_AddOns,
+    -- WoW's global alias for os.date (os itself is not in the client).
+    date = os.date,
   }
+end
+
+--- Have uninstall() remove a global the code under test creates itself
+--- (e.g. a SavedVariables table assigned on first run).
+function M.track(name)
+  state.globals[name] = true
 end
 
 function M.reset()
@@ -245,7 +352,12 @@ function M.reset()
     timers = {},
     seq = 0,
     now = 0,
+    cpu = 0,
+    profile_step = 0,
     inCombat = false,
+    errors = {},
+    chat = {},
+    metadata = M.default_metadata,
     globals = state and state.globals or {},
   }
 end
