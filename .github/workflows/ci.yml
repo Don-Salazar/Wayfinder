@@ -36,8 +36,18 @@ jobs:
           luarocks install busted 2.2.0-1
 
       # -q: print only files with problems; plain: one "file:line:col: (Wxxx) msg" line each.
+      # Each such line is also emitted as a GitHub annotation (readable through the
+      # public API without log access); the step still exits with luacheck's status.
       - name: luacheck
-        run: luacheck . -q --formatter plain
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/luacheck.out"
+          status=0
+          luacheck . -q --formatter plain > "$out" 2>&1 || status=$?
+          cat "$out"
+          sed -e 's/%/%25/g' "$out" \
+            | sed -nE 's/^([^:]+):([0-9]+):([0-9]+): \(([A-Z][0-9]+)\) (.*)$/::error file=\1,line=\2,col=\3::\4 \5/p'
+          exit "$status"
 
       - name: busted
         run: busted

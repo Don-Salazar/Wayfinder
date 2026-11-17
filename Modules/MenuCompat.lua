@@ -115,7 +115,7 @@ end
 
 local function showWithMenuUtil(menuUtil, menu, menuFrame)
     menuUtil.CreateContextMenu(menuFrame or _G.UIParent, function(_, rootDescription)
-        for _, item in ipairs(menu) do addItem(rootDescription, item) end
+        for i = 1, #menu do addItem(rootDescription, menu[i]) end
     end)
 end
 

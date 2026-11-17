@@ -90,11 +90,12 @@ end
 -- data: {icon = texture, OnClick = function(frame, mouseButton),
 --        OnTooltipShow = function(tooltip)}; settingsTable: profile.minimap.
 -- Creates no frame while the option is off.
-function MinimapButton:Register(data, settingsTable)
+-- Dot-defined (no self); callers may still use ":".
+function MinimapButton.Register(_, data, settingsTable)
     dataObject = data
     db = settingsTable
     if not isEnabled() then
-        self:Hide()
+        MinimapButton.Hide()
         return
     end
     if not Minimap then return end
@@ -104,6 +105,6 @@ function MinimapButton:Register(data, settingsTable)
     button:Show()
 end
 
-function MinimapButton:Hide()
+function MinimapButton.Hide()
     if button then button:Hide() end
 end
