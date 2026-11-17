@@ -8,36 +8,65 @@ local FILES = { "Modules/Core.lua", "Modules/SelfTest.lua" }
 local LINK = "|cffffffff|Hitem:1::::::::1:::::::|h[Placeholder]|h|r"
 local VALID = { pass = true, fail = true, missing = true, skipped = true, info = true }
 
--- A macro store that behaves like the client's for what the probes use:
--- bodies over 255 characters are cut to 255.
+-- A macro store that behaves like the client's for what the probes use.
+-- store = { account = {...}, character = {...} }; indexes 1..120 are account
+-- macros and 121.. character macros, so GetMacroIndexByName finds an account
+-- macro before a character macro of the same name. Bodies over 255
+-- characters are cut to 255.
+local ACCOUNT_SLOTS = 120
+
+local function new_store()
+  return { account = {}, character = {} }
+end
+
 local function macro_api(store)
+  local function at(index)
+    if index > ACCOUNT_SLOTS then return store.character, index - ACCOUNT_SLOTS end
+    return store.account, index
+  end
   local function index_of(name)
-    for i, m in ipairs(store) do
+    for i, m in ipairs(store.account) do
       if m.name == name then return i end
+    end
+    for i, m in ipairs(store.character) do
+      if m.name == name then return ACCOUNT_SLOTS + i end
     end
     return 0
   end
   return {
-    CreateMacro = function(name, icon, body)
-      store[#store + 1] = { name = name, icon = icon, body = body:sub(1, 255) }
-      return #store
+    CreateMacro = function(name, icon, body, perCharacter)
+      local list = perCharacter and store.character or store.account
+      list[#list + 1] = { name = name, icon = icon, body = body:sub(1, 255) }
+      return (perCharacter and ACCOUNT_SLOTS or 0) + #list
     end,
     EditMacro = function(index, name, icon, body)
-      local m = assert(store[index], "no macro at index")
+      local list, i = at(index)
+      local m = assert(list[i], "no macro at index")
       m.name, m.icon = name or m.name, icon or m.icon
       if body then m.body = body:sub(1, 255) end
       return index
     end,
-    DeleteMacro = function(index) table.remove(store, index) end,
+    DeleteMacro = function(index)
+      local list, i = at(index)
+      table.remove(list, i)
+    end,
     GetMacroIndexByName = index_of,
     GetMacroInfo = function(index)
-      local m = store[index]
+      local list, i = at(index)
+      local m = list[i]
       if m then return m.name, m.icon, m.body end
     end,
-    GetNumMacros = function() return 0, #store end,
-    MAX_ACCOUNT_MACROS = 120,
+    GetNumMacros = function() return #store.account, #store.character end,
+    MAX_ACCOUNT_MACROS = ACCOUNT_SLOTS,
     MAX_CHARACTER_MACROS = 18,
   }
+end
+
+local function copy(t)
+  if type(t) ~= "table" then return t end
+  local out = {}
+  for k, v in pairs(t) do out[k] = copy(v) end
+  return out
 end
 
 local function full_api(store)
@@ -115,7 +144,7 @@ describe("Modules/SelfTest.lua", function()
   local addon, WF, store
 
   local function start(overrides, metadata)
-    store = {}
+    store = new_store()
     local api = full_api(store)
     for k, v in pairs(overrides or {}) do api[k] = v end
     wow.install(api)
@@ -214,7 +243,7 @@ describe("Modules/SelfTest.lua", function()
     assert.are.equal("pass", r["secure.actionButton"].status)
     assert.are.equal("missing", r["cooldown.frameMethod"].status)
     assert.are.equal("pass", r["comm.registerPrefix"].status)
-    assert.are.same({}, store) -- every scratch macro was deleted
+    assert.are.same(new_store(), store) -- every scratch macro was deleted
   end)
 
   it("marks missing APIs as missing and never errors as a whole", function()
@@ -254,7 +283,7 @@ describe("Modules/SelfTest.lua", function()
         assert.are.equal("in combat", result.detail, id)
       end
     end
-    assert.are.same({}, store)
+    assert.are.same(new_store(), store)
   end)
 
   it("always deletes the scratch macro, even when a call fails", function()
@@ -264,15 +293,102 @@ describe("Modules/SelfTest.lua", function()
     local _, r = run()
     assert.are.equal("fail", r["macros.roundtrip"].status)
     assert.truthy(r["macros.roundtrip"].detail:find("edit refused", 1, true))
-    assert.are.same({}, store)
+    assert.are.same(new_store(), store)
   end)
 
   it("skips macro probes when no character slot is free", function()
     start()
-    for i = 1, 18 do store[i] = { name = "M" .. i, body = "" } end
+    for i = 1, 18 do store.character[i] = { name = "M" .. i, body = "" } end
     local _, r = run()
     assert.are.equal("skipped", r["macros.roundtrip"].status)
-    assert.are.equal(18, #store)
+    assert.are.equal(18, #store.character)
+  end)
+
+  it("never touches a player's macros named like the scratch macro (account and character)", function()
+    start()
+    store.account[1] = { name = "WFSelfTest", icon = "A", body = "/say account" }
+    store.character[1] = { name = "WFSelfTest", icon = "C", body = "/say character" }
+    local before = copy(store)
+    local _, r = run()
+    for id, result in pairs(r) do
+      if id:find("^macros%.") then
+        assert.are.equal("skipped", result.status, id)
+        assert.are.equal("name in use", result.detail, id)
+      end
+    end
+    assert.are.same(before, store)
+  end)
+
+  it("skips with \"name in use\" for a character macro of that name alone", function()
+    start()
+    store.character[1] = { name = "WFSelfTest", body = "/say mine" }
+    local before = copy(store)
+    local _, r = run()
+    assert.are.equal("name in use", r["macros.roundtrip"].detail)
+    assert.are.same(before, store)
+  end)
+
+  it("fails without writing when the returned index is not the scratch macro", function()
+    local api = {}
+    start({
+      CreateMacro = function(name, icon, body, perCharacter)
+        api.real(name, icon, body, perCharacter)
+        return 1 -- points at the player's account macro
+      end,
+    })
+    api.real = macro_api(store).CreateMacro
+    store.account[1] = { name = "Mine", body = "/say keep me" }
+    local _, r = run()
+    assert.are.equal("fail", r["macros.roundtrip"].status)
+    assert.are.same({ name = "Mine", body = "/say keep me" }, store.account[1])
+    -- The leaked scratch macro stops the remaining macro probes.
+    assert.are.equal("skipped", r["macros.body.showtooltip"].status)
+    assert.are.equal(1, #store.character)
+  end)
+
+  it("fails and stops the remaining macro probes when the scratch macro is not deleted", function()
+    start({ DeleteMacro = function() end })
+    local _, r = run()
+    assert.are.equal("fail", r["macros.roundtrip"].status)
+    assert.truthy(r["macros.roundtrip"].detail:find("still present", 1, true))
+    for _, id in ipairs({ "macros.body.showtooltip", "macros.body.modifiers", "macros.length.255" }) do
+      assert.are.equal("skipped", r[id].status, id)
+    end
+    assert.are.equal(1, #store.character) -- one leak, not one per probe
+  end)
+
+  it("verifies deletion after every body probe", function()
+    local deletes = 0
+    start({
+      DeleteMacro = function(index)
+        deletes = deletes + 1
+        if deletes == 2 then return end -- the first body probe's delete does nothing
+        table.remove(store.character, index - ACCOUNT_SLOTS)
+      end,
+    })
+    local _, r = run()
+    assert.are.equal("pass", r["macros.roundtrip"].status)
+    assert.are.equal("fail", r["macros.body.showtooltip"].status)
+    assert.truthy(r["macros.body.showtooltip"].detail:find("cleanup", 1, true))
+    assert.are.equal("skipped", r["macros.body.castsequence"].status)
+  end)
+
+  it("records an \"error\" status and no completion when fetching a step fails", function()
+    start()
+    local real = WF.RunChunked
+    WF.RunChunked = function(self, steps, onDone, budget, moduleId)
+      local i = 0
+      return real(self, function()
+        i = i + 1
+        if i == 3 then error("fetch broke") end
+        return steps[i]
+      end, onDone, budget, moduleId)
+    end
+    local report = run()
+    assert.are.equal("error", report.status)
+    assert.is_false(report.complete)
+    assert.are.equal(2, #report.results)
+    assert.is_true(wow.chat_contains("stopped early (error)"))
   end)
 
   it("stores values the client marks secret as \"secret\" without reading them", function()
@@ -289,7 +405,7 @@ describe("Modules/SelfTest.lua", function()
   end)
 
   it("leaks no globals beyond its SavedVariables", function()
-    store = {}
+    store = new_store()
     wow.install(full_api(store))
     local before = loader.global_keys()
     addon = loader.load(FILES, nil, wow)

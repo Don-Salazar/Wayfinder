@@ -103,6 +103,7 @@ describe("Modules/Core.lua", function()
       assert.is_false(WF.IsDevelopmentVersion("1.0.0"))
       assert.is_false(WF.IsDevelopmentVersion("10.1"))
       assert.is_false(WF.IsDevelopmentVersion(nil))
+      assert.is_true(WF.IsDevelopmentVersion("@project-version@"))
     end)
 
     it("uses devDefault only in development builds", function()
@@ -187,6 +188,31 @@ describe("Modules/Core.lua", function()
       assert.are.equal(1, #WF.errors)
       assert.are.equal("bad", WF.errors[1].module)
       assert.are.equal(1, #wow.errors())
+    end)
+
+    it("keeps the right failure message when errors are de-duplicated or capped", function()
+      load_core()
+      WF:Start()
+      local a = WF:RegisterModule("a", test_module({ default = true, slash = {},
+        OnEnable = function() error("A broke") end }))
+      WF:RegisterModule("b", test_module({ default = true, slash = {},
+        OnEnable = function() error("B broke") end }))
+      assert.truthy(a.failed:find("A broke", 1, true))
+      WF:SetEnabled("a", true) -- de-duplicated into A's older record
+      assert.truthy(a.failed:find("A broke", 1, true))
+      for i = 1, 60 do WF:Guard("x", function() error("filler " .. i) end)() end
+      local c = WF:RegisterModule("c", test_module({ default = true, slash = {},
+        OnEnable = function() error("C broke") end }))
+      assert.truthy(c.failed:find("C broke", 1, true)) -- cap hit: no record, message kept
+    end)
+
+    it("reserves upstream's subcommands", function()
+      load_core()
+      for _, name in ipairs({ "debug", "splits", "show", "hide", "toggle", "bug", "feedback", "preview", "help" }) do
+        assert.has_error(function()
+          WF:RegisterModule("m_" .. name, test_module({ slash = { [name] = function() end } }))
+        end, nil, name)
+      end
     end)
 
     it("rejects bad definitions and duplicate ids or subcommands", function()
@@ -313,6 +339,16 @@ describe("Modules/Core.lua", function()
       assert.are.equal(1, #WF.errors)
       assert.truthy(WF.errors[1].message:find("handler broke", 1, true))
     end)
+
+    it("claims a matched subcommand even when its output itself fails", function()
+      load_core()
+      WF:RegisterModule("test", test_module({ default = false }))
+      WF:Start()
+      wow.install({ DEFAULT_CHAT_FRAME = { AddMessage = function() error("chat broke") end } })
+      assert.is_true(WF:HandleSlash("probe"))
+      assert.is_true(WF:HandleSlash("modules"))
+      assert.is_false(WF:HandleSlash("debug"))
+    end)
   end)
 
   describe("Guard", function()
@@ -339,6 +375,7 @@ describe("Modules/Core.lua", function()
       assert.are.equal(2, record.count)
       assert.are.equal(2, #wow.errors())
       assert.truthy(wow.errors()[1]:find("boom", 1, true))
+      assert.truthy(wow.errors()[1]:find("\n", 1, true), "stack passed to the error handler")
     end)
 
     it("caps the number of distinct records", function()
@@ -412,6 +449,29 @@ describe("Modules/Core.lua", function()
       for _ = 1, 10 do wow.next_frame() end
       assert.are.same({ 1 }, log)
       assert.are.equal(0, wow.pending_timers())
+    end)
+
+    it("finishes with \"error\" when the iterator throws", function()
+      load_core()
+      local n, done = 0
+      WF:RunChunked(function()
+        n = n + 1
+        if n == 2 then error("iterator broke") end
+        return function() end
+      end, function(status) done = status end)
+      for _ = 1, 5 do wow.next_frame() end
+      assert.are.equal("error", done)
+      assert.are.equal(1, #WF.errors)
+    end)
+
+    it("finishes with \"error\" on a hole in the steps array", function()
+      load_core()
+      local log, done = {}
+      WF:RunChunked({ function() log[#log + 1] = 1 end, nil, function() log[#log + 1] = 3 end },
+        function(status) done = status end)
+      for _ = 1, 5 do wow.next_frame() end
+      assert.are.equal("error", done)
+      assert.are.same({ 1 }, log)
     end)
 
     it("can be cancelled through its handle", function()

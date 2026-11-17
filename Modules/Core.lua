@@ -47,11 +47,14 @@ end
 -- ---------------------------------------------------------------------------
 -- Development vs release
 
---- True for a development version string: "0.x..." or anything with "-dev".
---- A missing version counts as a release (the safer defaults).
+--- True for a development version string: "0.x...", anything with "-dev",
+--- or an unreplaced packager token ("@project-version@"). A missing version
+--- counts as a release (the safer defaults).
 function WF.IsDevelopmentVersion(version)
     if type(version) ~= "string" then return false end
-    return version:find("^0%.") ~= nil or version:lower():find("%-dev") ~= nil
+    local lower = version:lower()
+    return version:find("^0%.") ~= nil or lower:find("%-dev") ~= nil
+        or lower:find("@project%-version@") ~= nil
 end
 
 local function readMetadata(field)
@@ -92,7 +95,9 @@ local function captureError(err)
 end
 
 --- Record an error for the field log (deduplicated per module and message,
---- at most MAX_ERRORS distinct records), then pass it to geterrorhandler().
+--- at most MAX_ERRORS distinct records), then pass it, with its stack, to
+--- geterrorhandler(). Returns the record (nil once the cap is hit) and the
+--- message.
 function WF:ReportError(moduleId, message, stack)
     moduleId = tostring(moduleId or CORE_ID)
     message = tostring(message)
@@ -115,9 +120,9 @@ function WF:ReportError(moduleId, message, stack)
     end
     local handler = type(geterrorhandler) == "function" and geterrorhandler()
     if type(handler) == "function" then
-        pcall(handler, message)
+        pcall(handler, stack and (message .. "\n" .. stack) or message)
     end
-    return record
+    return record, message
 end
 
 --- The session's error records (read-only by convention).
@@ -125,18 +130,26 @@ function WF:GetErrors()
     return self.errors
 end
 
---- Call fn(...) under xpcall. Returns true, results... on success; on error
---- records and re-raises (to the error handler) and returns false.
-function WF:Call(moduleId, fn, ...)
+-- Run fn(...) under xpcall. Returns true and the packed results; or, after
+-- reporting the error, false and the error message.
+local function invoke(self, moduleId, fn, ...)
     local args = pack(...)
     local results
     local ok, captured = xpcall(function()
         results = pack(fn(unpack(args, 1, args.n)))
     end, captureError)
+    if ok then return true, results end
+    local _, message = self:ReportError(moduleId, captured.message, captured.stack)
+    return false, message
+end
+
+--- Call fn(...) under xpcall. Returns true, results... on success; on error
+--- records and re-raises (to the error handler) and returns false.
+function WF:Call(moduleId, fn, ...)
+    local ok, results = invoke(self, moduleId, fn, ...)
     if ok then
         return true, unpack(results, 1, results.n)
     end
-    self:ReportError(moduleId, captured.message, captured.stack)
     return false
 end
 
@@ -154,9 +167,14 @@ end
 
 --- Run steps (an array of functions, or an iterator function returning the
 --- next step or nil) across frames, spending at most budgetMs per frame (at
---- least one step per frame). Each step runs guarded. onDone(status, handle)
---- gets "done" or "cancelled". With moduleId, the run stops when that module
---- is disabled. Returns a handle with :Cancel() and :IsRunning().
+--- least one step per frame). Each step runs guarded; a step that throws is
+--- recorded and the run goes on. onDone(status, handle) gets:
+---   "done"      every step was fetched and run;
+---   "cancelled" Cancel() was called or the owning module was disabled;
+---   "error"     fetching the next step failed: the iterator threw, or the
+---               array has a hole (steps[i] is nil below table.maxn(steps)).
+--- With moduleId, the run stops when that module is disabled. Returns a
+--- handle with .Cancel() and .IsRunning().
 function WF:RunChunked(steps, onDone, budgetMs, moduleId)
     assert(type(steps) == "table" or type(steps) == "function", "WF:RunChunked: steps must be a table or function")
     budgetMs = tonumber(budgetMs) or DEFAULT_BUDGET_MS
@@ -165,10 +183,13 @@ function WF:RunChunked(steps, onDone, budgetMs, moduleId)
     if type(steps) == "function" then
         nextStep = steps
     else
-        local i = 0
+        local i, last = 0, table.maxn(steps)
         nextStep = function()
             i = i + 1
-            return steps[i]
+            if i > last then return nil end
+            local step = steps[i]
+            if step == nil then error("RunChunked: steps[" .. i .. "] is nil (hole in the array)", 0) end
+            return step
         end
     end
 
@@ -202,7 +223,11 @@ function WF:RunChunked(steps, onDone, budgetMs, moduleId)
         local started = clock and clock() or 0
         repeat
             local gotStep, step = core:Call(owner, nextStep)
-            if not gotStep or step == nil then
+            if not gotStep then
+                finish("error")
+                return
+            end
+            if step == nil then
                 finish("done")
                 return
             end
@@ -219,15 +244,24 @@ function WF:RunChunked(steps, onDone, budgetMs, moduleId)
 end
 
 function WF.CancelRuns(moduleId)
+    -- Collect first, then cancel: Cancel() runs onDone, which may start runs.
+    local matching = {}
     for handle in pairs(runs) do
-        if handle.moduleId == moduleId then handle.Cancel() end
+        if handle.moduleId == moduleId then matching[#matching + 1] = handle end
     end
+    for _, handle in ipairs(matching) do handle.Cancel() end
 end
 
 -- ---------------------------------------------------------------------------
 -- Module registry
 
-local RESERVED_SLASH = { modules = true }
+-- Ours (modules) plus upstream's own subcommands (addon.settings.ChatCommand
+-- in SettingsPanel.lua, and its removed "import"), so no module shadows them.
+local RESERVED_SLASH = {
+    modules = true,
+    debug = true, splits = true, show = true, hide = true, toggle = true,
+    bug = true, feedback = true, preview = true, help = true, import = true,
+}
 
 --- def = { title, desc, default (boolean), devDefault (optional boolean),
 ---         OnEnable(def), OnDisable(def), slash = { name = handler(args) } }
@@ -294,10 +328,9 @@ function WF:ApplyState(id)
     if want and not record.enabled then
         record.enabled = true
         record.failed = nil
-        local ok = self:Call(id, record.def.OnEnable, record.def)
+        local ok, message = invoke(self, id, record.def.OnEnable, record.def)
         if not ok then
-            local last = self.errors[#self.errors]
-            record.failed = last and last.message or "OnEnable failed"
+            record.failed = message or "OnEnable failed"
             record.enabled = false
             WF.CancelRuns(id)
             self:Call(id, record.def.OnDisable, record.def)
@@ -433,10 +466,22 @@ local function handleSlash(self, input)
     return true
 end
 
+-- The subcommand word of input, lower-cased, or nil. Never throws.
+local function subcommand(input)
+    if type(input) ~= "string" then return nil end
+    local command = input:match("^%s*(%S+)")
+    return command and command:lower()
+end
+
 --- Called from upstream's ChatCommand before its own handling. Returns true
---- when the subcommand belongs to Wayfinder's core or one of its modules.
+--- when the subcommand belongs to Wayfinder's core or one of its modules,
+--- even if its handler throws (the error is recorded and re-raised to the
+--- error handler; upstream never sees it as an unknown command).
 function WF:HandleSlash(input)
+    local command = subcommand(input)
+    local ours = command ~= nil and (command == "modules" or slashOwners[command] ~= nil)
     local ok, handled = self:Call(CORE_ID, handleSlash, self, input)
+    if ours then return true end
     return ok and handled == true
 end
 
