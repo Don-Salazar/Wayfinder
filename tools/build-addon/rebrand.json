@@ -5,6 +5,11 @@
     "reason": "Upstream guide files: their RegisterGuide long strings are guide TEXT and stay byte-identical. Only the two globals they use as code are renamed (owner approved rewriting RXPGuides.RegisterGuide( and RXP.enabledLocale by script).",
     "renameGlobals": ["RXPGuides", "RXP"]
   },
+  "fileReferences": {
+    "xmlAttributes": ["file"],
+    "rules": ["path-addon-folder"],
+    "reason": "Values of XML file= attributes (<Script>/<Include> manifest entries, texture files) and TOC file lines name files on disk. Renaming them without renaming the file breaks loading (e.g. Guides/forever/RestedXP-Skyborne.lua), so only the listed rules apply: the Interface\\AddOns\\RXPGuides\\ folder prefix. The TOC transform touches SavedVariables lines only."
+  },
   "verbatim": [
     { "glob": "libs/**", "reason": "Bundled third-party libraries (Ace3, HereBeDragons, ...): never edited; library names must stay as their authors registered them." }
   ],

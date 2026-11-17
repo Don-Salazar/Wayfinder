@@ -11,17 +11,21 @@
 //   npm run build:addon                      build dist/Wayfinder and print a summary
 //   npm run check:addon                      build, then --check-residue and --check-lines
 //   tsx tools/build-addon/index.ts --check-residue   fail on RXP/RestedXP residue outside residue-allow.json
+//   tsx tools/build-addon/index.ts --check-manifests  fail unless every TOC/XML file reference in dist resolves in dist
 //   tsx tools/build-addon/index.ts --check-lines     fail if a dist Lua file's line count differs from its source
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildToc, loadConfig, sameText, shippedFiles, upstreamCommit } from "../build-toc/index.ts";
+import { findingKey, type BaselineEntry } from "../check-manifests/index.ts";
+import { loadOrder } from "../check-manifests/manifest.ts";
 import { lineCount, Rebrander, type RebrandConfig } from "./rebrand.ts";
 import { scanResidue, type Hit, type ResidueConfig } from "./residue.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const REBRAND = fileURLToPath(new URL("./rebrand.json", import.meta.url));
+const MANIFEST_BASELINE = fileURLToPath(new URL("../check-manifests/baseline.json", import.meta.url));
 const RESIDUE_ALLOW = fileURLToPath(new URL("./residue-allow.json", import.meta.url));
 export const DIST = "dist/Wayfinder";
 
@@ -110,6 +114,30 @@ export function checkResidue(root = REPO_ROOT, outRel = DIST): { hits: Hit[]; by
   return { hits, byClass };
 }
 
+/**
+ * Validate the built addon the way tools/check-manifests validates the repo:
+ * the client must pick dist Wayfinder.toc, and every file it lists and every
+ * XML <Script>/<Include> (XML folder first, then addon root) must resolve to a
+ * file in dist. Any finding fails unless the same finding for the repo
+ * Wayfinder.toc is accepted in check-manifests/baseline.json (the known
+ * upstream case differences); a missing file always fails.
+ */
+export function checkManifests(root = REPO_ROOT, outRel = DIST): { problems: string[]; files: number; accepted: number } {
+  const cfg = loadConfig();
+  const r = loadOrder(cfg.gameType, { root: resolve(root, outRel), addon: cfg.addon });
+  const problems: string[] = [];
+  if (r.toc?.toLowerCase() !== cfg.output.toLowerCase()) problems.push(`the client would load ${r.toc ?? "no TOC"}, not ${cfg.output}`);
+  for (const f of r.files) if (!f.exists) problems.push(`${f.from}:${f.line}: ${f.path} does not exist in ${outRel}`);
+  const baseline = (JSON.parse(readFileSync(MANIFEST_BASELINE, "utf8")) as { findings: BaselineEntry[] }).findings;
+  const accepted = new Set(baseline.filter((b) => b.addon === cfg.addon).map(findingKey));
+  let ok = 0;
+  for (const f of r.findings) {
+    if (f.kind !== "missing" && accepted.has(findingKey(f))) ok++;
+    else problems.push(`${f.from}:${f.line}: ${f.kind}: ${f.detail}`);
+  }
+  return { problems: [...new Set(problems)], files: r.files.length, accepted: ok };
+}
+
 export function checkLines(root = REPO_ROOT, outRel = DIST): string[] {
   const { files } = shippedFiles(root, loadConfig());
   const bad: string[] = [];
@@ -141,12 +169,19 @@ function main(argv: string[]): number {
     else console.log(`check-lines: OK (every Lua file in ${DIST} has its source's line count)`);
   }
 
+  if (argv.includes("--check-manifests") || argv.includes("--check-residue")) {
+    const m = checkManifests();
+    for (const p of m.problems) console.error(`MANIFEST: ${DIST}/${p}`);
+    if (m.problems.length) status = 1;
+    else console.log(`check-manifests: OK (${m.files} files load from ${DIST}/Wayfinder.toc, all present; ${m.accepted} baseline case finding(s))`);
+  }
+
   if (argv.includes("--check-residue")) {
     const { hits, byClass } = checkResidue();
     console.log("residue by class:");
     for (const [k, v] of [...byClass].sort()) console.log(`  ${String(v).padStart(7)}  ${k}`);
     const bad = hits.filter((h) => !h.cls);
-    for (const h of bad) console.error(`RESIDUE: ${DIST}/${h.file}:${h.line}: ${h.text}`);
+    for (const h of bad) console.error(`RESIDUE${h.forbidden ? ` [${h.forbidden}]` : ""}: ${DIST}/${h.file}:${h.line}: ${h.text}`);
     if (bad.length) {
       console.error(`check-residue: FAIL, ${bad.length} occurrence(s) outside tools/build-addon/residue-allow.json`);
       status = 1;

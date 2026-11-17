@@ -18,6 +18,8 @@ export interface RebrandConfig {
   description?: string;
   guideFiles: { globs: string[]; reason: string; renameGlobals: string[] };
   verbatim: { glob: string; reason: string }[];
+  /** File references: only the listed "strings" rules may change them. */
+  fileReferences: { xmlAttributes: string[]; rules: string[]; reason: string };
   identifiers: { exact: ExactRule[]; prefix: PatternRule[]; infix: PatternRule[] };
   keepLiterals: KeepRule[];
   calls: CallRule[];
@@ -66,6 +68,8 @@ export function validateRebrand(c: RebrandConfig): void {
     if (!k.reason || !k.reason.trim()) err(`keep entry "${k.pattern}" needs a reason`);
   }
   if (!c.guideFiles.reason?.trim()) err(`guideFiles needs a reason`);
+  if (!c.fileReferences?.reason?.trim()) err(`fileReferences needs a reason`);
+  for (const id of c.fileReferences.rules) if (!c.strings.some((r) => r.id === id)) err(`fileReferences.rules "${id}" is not a "strings" rule id`);
   for (const g of c.guideFiles.renameGlobals) if (!c.identifiers.exact.some((r) => r.from === g)) err(`guideFiles.renameGlobals "${g}" has no exact identifier rule`);
 }
 
@@ -81,6 +85,8 @@ interface Compiled {
   guideGlobs: RegExp[];
   guideGlobals: Set<string>;
   verbatim: RegExp[];
+  fileAttrs: Set<string>;
+  fileRules: { rule: PatternRule; re: RegExp }[];
 }
 
 export class Rebrander {
@@ -106,6 +112,8 @@ export class Rebrander {
       guideGlobs: config.guideFiles.globs.map(globToRegExp),
       guideGlobals: new Set(config.guideFiles.renameGlobals),
       verbatim: config.verbatim.map((v) => globToRegExp(v.glob)),
+      fileAttrs: new Set(config.fileReferences.xmlAttributes.map((a) => a.toLowerCase())),
+      fileRules: config.strings.filter((r) => config.fileReferences.rules.includes(r.id)).map(cr),
     };
   }
 
@@ -210,6 +218,11 @@ export class Rebrander {
     return out;
   }
 
+  /** A file reference: only the fileReferences rules (addon-folder prefix) apply. */
+  renameFileRef(content: string): string {
+    return this.applyAll(content, this.c.fileRules);
+  }
+
   /** Rename a Lua file. Guide files get only the global-name rule on code names. */
   lua(src: string, path: string): string {
     const guide = this.isGuideFile(path);
@@ -246,7 +259,8 @@ export class Rebrander {
         while (j < src.length && region[j] === STRING) j++;
         // [i, j) is a quoted value including its quotes
         const content = src.slice(i + 1, j - 1);
-        const nv = this.renameLiteral(content);
+        const attr = /([A-Za-z_:][\w:.-]*)\s*=\s*$/.exec(src.slice(Math.max(0, i - 64), i))?.[1]?.toLowerCase();
+        const nv = attr && this.c.fileAttrs.has(attr) ? this.renameFileRef(content) : this.renameLiteral(content);
         if (nv !== content) edits.push({ start: i + 1, end: j - 1, text: nv });
         i = j;
       } else i++;

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { lexLua } from "../inventory-ids/lex.ts";
+import { checkManifests } from "./index.ts";
 import { callContext, lineCount, Rebrander, validateRebrand, type RebrandConfig } from "./rebrand.ts";
 import { scanResidue, validateResidue, type ResidueConfig } from "./residue.ts";
 
@@ -180,4 +183,51 @@ test("residue: classes and unclassified hits", () => {
   const guide = scanResidue("Guides/forever/x.lua", `RXPGuides.RegisterGuide([[\n#group RestedXP\n]])`, RESIDUE);
   assert.deepEqual(guide.map((h) => h.cls), [undefined, "guide-text"], "a code-token RXPGuides left in a guide file is residue");
   assert.equal(scanResidue("libs/AceGUI/x.lua", `local RXP = 1`, RESIDUE)[0]!.cls, "libs");
+});
+
+test("xml file references: only the addon-folder path rule applies (manifest entries keep their file names)", () => {
+  const r = rb();
+  assert.equal(
+    r.xml(`<Ui><Script file="Guides/forever/RestedXP-Skyborne.lua"/><Include file="forever\dungeon\RestedXP-Skyborne.lua"/><Script file="RXPGuides.lua"/></Ui>`),
+    `<Ui><Script file="Guides/forever/RestedXP-Skyborne.lua"/><Include file="forever\dungeon\RestedXP-Skyborne.lua"/><Script file="RXPGuides.lua"/></Ui>`,
+  );
+  assert.equal(r.xml(`<Tex file="Interface\\Addons\\RXPGuides\\Textures\\k"/>`), `<Tex file="Interface\\Addons\\Wayfinder\\Textures\\k"/>`);
+  assert.equal(r.toc(`## Title: x\nGuides/forever/RestedXP-Skyborne.lua\nRXPGuides.lua\n`), `## Title: x\nGuides/forever/RestedXP-Skyborne.lua\nRXPGuides.lua\n`);
+});
+
+test("residue: an RXP+uppercase name in engine code fails even where a class would allow it", () => {
+  const lua = [
+    `local t = f:CreateTexture("RXPLevelSplitsFrameBG", "BACKGROUND")`,
+    `--[[ f:CreateTexture("RXPLevelSplitsFrameBG") ]]`,
+    `local k = gtc["RXP_WARN_"]`,
+    `local g = "RXPGuides"`,
+    `local h = "RXP_FOO_"`,
+    `local s = "RXP Speedrun Guide"`,
+    `local a = RXPLeftoverGlobal`,
+    `local u = "github.com/RestedXP/RXPGuides"`,
+  ].join("\n");
+  const hits = scanResidue("LevelingTracker.lua", lua, RESIDUE);
+  assert.deepEqual(
+    hits.map((h) => [h.line, h.forbidden ?? h.cls ?? "-"]),
+    [[1, "rxp-name-in-engine"], [2, "comments"], [3, "guide-markup"], [4, "group-names"], [5, "rxp-name-in-engine"], [6, "group-names"], [7, "rxp-name-in-engine"], [8, "credits"], [8, "credits"]],
+  );
+  assert.equal(scanResidue("Guides/forever/x.lua", `x = [[RXPFrame]]`, RESIDUE)[0]!.forbidden, undefined, "guide text is exempt");
+});
+
+test("checkManifests: every TOC/XML reference in the built addon must resolve inside it", () => {
+  const root = mkdtempSync(join(tmpdir(), "wf-dist-"));
+  const d = join(root, "dist", "Wayfinder");
+  mkdirSync(join(d, "Guides", "forever"), { recursive: true });
+  writeFileSync(join(d, "Wayfinder.toc"), "## Interface: 16001\nCore.lua\nGuides/GuideList.xml\n");
+  writeFileSync(join(d, "Core.lua"), "\n");
+  writeFileSync(join(d, "Guides", "forever", "RestedXP-Skyborne.lua"), "\n");
+  writeFileSync(join(d, "Guides", "GuideList.xml"), `<Ui>\n<Script file="forever/RestedXP-Skyborne.lua"/>\n</Ui>\n`);
+  try {
+    assert.deepEqual(checkManifests(root, "dist/Wayfinder").problems, []);
+    writeFileSync(join(d, "Guides", "GuideList.xml"), `<Ui>\n<Script file="forever/Wayfinder-Skyborne.lua"/>\n</Ui>\n`);
+    const p = checkManifests(root, "dist/Wayfinder").problems;
+    assert.ok(p.some((m) => m.includes("Wayfinder-Skyborne.lua")), p.join("\n"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

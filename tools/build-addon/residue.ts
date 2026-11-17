@@ -20,8 +20,24 @@ export interface ResidueClass {
   span?: string;
 }
 
+/**
+ * A hit inside a match of "span" fails the check whatever class would allow it,
+ * unless it is in an excepted region / path or its literal matches "keepLiteral".
+ */
+export interface ForbiddenRule {
+  id: string;
+  reason: string;
+  span: string;
+  /** Only files matching these globs are checked. */
+  paths: string[];
+  exceptRegions?: ("comment" | "string" | "code")[];
+  exceptPaths?: string[];
+  keepLiteral?: string;
+}
+
 export interface ResidueConfig {
   description?: string;
+  forbidden?: ForbiddenRule[];
   classes: ResidueClass[];
 }
 
@@ -30,6 +46,8 @@ export interface Hit {
   line: number;
   text: string;
   cls?: string;
+  /** Id of the forbidden rule the hit breaks (then cls is unset). */
+  forbidden?: string;
 }
 
 export const RESIDUE = /rxp|restedxp|rested[ _-]?xp/gi;
@@ -52,6 +70,27 @@ export function validateResidue(cfg: ResidueConfig): void {
   }
 }
 
+interface CompiledForbidden {
+  f: ForbiddenRule;
+  span: RegExp;
+  paths: RegExp[];
+  exceptPaths: RegExp[];
+  keep?: RegExp;
+}
+
+function compileForbidden(cfg: ResidueConfig): CompiledForbidden[] {
+  return (cfg.forbidden ?? []).map((f) => {
+    if (!f.id || !f.reason?.trim() || !f.span || !f.paths?.length) throw new Error(`residue-allow.json: forbidden rule "${f.id}" needs id, reason, span and paths`);
+    return {
+      f,
+      span: new RegExp(f.span, "g"),
+      paths: f.paths.map(globToRegExp),
+      exceptPaths: (f.exceptPaths ?? []).map(globToRegExp),
+      ...(f.keepLiteral ? { keep: new RegExp(f.keepLiteral) } : {}),
+    };
+  });
+}
+
 function compile(cfg: ResidueConfig): Compiled[] {
   validateResidue(cfg);
   return cfg.classes.map((c) => ({
@@ -66,6 +105,7 @@ function compile(cfg: ResidueConfig): Compiled[] {
 /** Classify every residue hit in one file. */
 export function scanResidue(path: string, src: string, cfg: ResidueConfig): Hit[] {
   const classes = compile(cfg);
+  const forbidden = compileForbidden(cfg).filter((k) => k.paths.some((re) => re.test(path)) && !k.exceptPaths.some((re) => re.test(path)));
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   let region: Uint8Array | undefined;
   let literals: [number, number][] = [];
@@ -101,6 +141,16 @@ export function scanResidue(path: string, src: string, cfg: ResidueConfig): Hit[
     if (le < 0) le = src.length;
     const lineText = src.slice(ls, le).replace(/\r$/, "");
     const col = off - ls;
+    const broken = forbidden.find(
+      (k) =>
+        !(k.f.exceptRegions ?? []).includes(regionName) &&
+        covers(k.span, lineText, col) &&
+        !(k.keep && literal !== undefined && k.keep.test(literal)),
+    );
+    if (broken) {
+      hits.push({ file: path, line: lineNo, text: lines.text(off), forbidden: broken.f.id });
+      continue;
+    }
     let cls: string | undefined;
     for (const k of classes) {
       if (k.paths && !k.paths.some((re) => re.test(path))) continue;
