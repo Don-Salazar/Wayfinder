@@ -18,9 +18,9 @@ H[L"Why is my guide skipping lots of steps or zones?"] = L[[
 These are inefficient areas that we skip if you are missing quest chains or if you are ahead in levels compared to the guide.
 ]]
 
+-- WF: removed the "/rxp import" line from this help text (guide importer removed)
 H[L"What are command the line options?"] = L[[
 |cff909090/rxp|r - Open general addon settings
-|cff909090/rxp import|r - Open Import Guide interface
 |cff909090/rxp debug|r - enable debugging output
 |cff909090/rxp splits|r - Toggle Level Splits on or off, if enabled
 |cff909090/rxp show||hide||toggle|r - Toggle all enabled frames on or off

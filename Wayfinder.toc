@@ -5,7 +5,7 @@
 ## Author: Wayfinder contributors
 ## Version: 0.1.0-dev
 ## OptionalDeps: Questie, RXPGuides_Themes
-## SavedVariables: RXPData, RXPDB, RXPSettings, RXPString
+## SavedVariables: RXPData, RXPDB, RXPSettings
 ## SavedVariablesPerCharacter: RXPCData, RXPCTrackingData, RXPCComms, RXPCSettings
 
 libs\embeds_Mainline.xml

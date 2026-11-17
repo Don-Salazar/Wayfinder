@@ -565,6 +565,7 @@ function addon.comms.OpenBugReport(stepNumber)
     end
     local errorFlags = ""
     if addon.lastEvent then errorFlags = "\nError Flags: " .. addon.lastCall .. addon.lastEvent end
+    -- WF: removed the "BNet:" line and its BNGetInfo() call from the bug-report text (no use to us)
     local content = fmt([[%s
 
 
@@ -578,7 +579,6 @@ Addon: %s
 XP Rate: %.1f
 Locale: %s
 Client Version: %s
-BNet: %s
 
 Current Step data
 %s
@@ -589,7 +589,7 @@ Arrow data
 ```
 ]], L("Describe your issue:"), L("Do not edit below this line"), character or "Error", zone or "Error",
                         guide and guide:gsub("|", "||") or "Error", addon.release, addon.settings.profile.xprate,
-                        GetLocale(), select(1, GetBuildInfo()), select(2, BNGetInfo()) ~= nil and "Online" or "Offline",
+                        GetLocale(), select(1, GetBuildInfo()),
                         stepData, arrowData, addonErrors, errorFlags)
 
     local f = AceGUI:Create("Frame")

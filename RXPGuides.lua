@@ -1598,7 +1598,7 @@ function addon:OnInitialize()
     if addon.player.season == 2 then
         addon.settings.profile.phase = 6
     end
-    addon.LoadCachedGuides()
+    -- WF: removed addon.LoadCachedGuides() (login import from RXPString and cached imported guides)
     addon.UpdateGuideFontSize()
     addon.isHidden = not addon.settings.profile.showEnabled or addon.settings.profile.hideGuideWindow
     addon.RXPFrame:SetShown(not addon.isHidden)
@@ -1875,15 +1875,10 @@ function addon:PLAYER_REGEN_ENABLED(...)
     addon.UpdateItemFrame()
 
     if addon.settingsPanelAfterCombat ~= nil then
-        local panelName = addon.settingsPanelAfterCombat
-
         addon.settingsPanelAfterCombat = nil
 
-        if panelName == "Import" then
-            addon.guideImporter:Open()
-        else
-            addon.settings.OpenSettings()
-        end
+        -- WF: removed the deferred "Import" branch (guide importer removed)
+        addon.settings.OpenSettings()
     end
 end
 

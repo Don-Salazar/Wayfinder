@@ -1147,25 +1147,8 @@ addon.separators.setquestdb = function(t,args)
     table.insert(t,args)
 end
 
-function addon.functions.setquestdb(self,text,str)
-    if type(self) == "string" then
-        local group = addon.guide.group
-        if not group or addon.QuestDB[group] then
-            return
-        end
-        local t = assert(loadstring("return " .. str))
-        setfenv(t, {})
-        local questdb = t()
-        if type(questdb) ~= "table" then
-            if addon.settings.profile.debug then
-                print("Error loading QuestDB for",group)
-            end
-            return
-        end
-        addon.QuestDB[group] = questdb
-        addon:FetchGuide(group,L"Turn in Route")
-        --print('loaded QuestDB for',group)
-    end
+-- WF: made #setquestdb inert; it ran loadstring on guide text and no Forever guide uses it
+function addon.functions.setquestdb()
 end
 
 function addon.functions.setturninroute(self,arg)

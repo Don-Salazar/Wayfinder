@@ -3,5 +3,6 @@
     <Include file="Core.lua" />
     <Include file="AuctionHouse.lua" />
     <Include file="GuideConfigurator.lua" />
-    <Include file="GuideImporter.lua" />
+    <!-- WF: GuideImporter.lua not loaded; the encrypted guide importer is removed -->
+    <!-- <Include file="GuideImporter.lua" /> -->
 </Ui>

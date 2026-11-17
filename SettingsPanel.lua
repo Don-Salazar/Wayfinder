@@ -104,9 +104,8 @@ function addon.settings.ChatCommand(input)
     if not input then addon.settings.OpenSettings() end
 
     input = input:trim()
-    if input == "import" then
-        addon.guideImporter:Open()
-    elseif input == "debug" then
+    -- WF: removed the "/rxp import" subcommand (guide importer removed)
+    if input == "debug" then
         addon.settings.profile.debug = not addon.settings.profile.debug
     elseif input == "splits" then
         addon.tracker:ToggleLevelSplits()
@@ -602,18 +601,7 @@ function addon.settings:CreateAceOptionsPanel()
                     addon.url = nil
                 end
             },
-            importGuidesButton = {
-                order = 1.05,
-                name = L("Import Guides"),
-                type = "execute",
-                width = "normal",
-                func = function()
-                    _G.RunNextFrame(function()
-                        addon.settings.CloseSettings()
-                        addon.guideImporter:Open()
-                    end)
-                end
-            },
+            -- WF: removed the "Import Guides" button (guide importer removed)
             feedbackButton = {
                 order = 1.1,
                 name = L("Open Feedback Form"),

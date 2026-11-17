@@ -39,7 +39,8 @@
       { "path": "NOTICE.md", "reason": "Third-party notices; must name the licence of each bundled upstream component, including the GPL ones marked for removal." },
       { "path": "tools/check-origins/origins.json", "reason": "Defines the marker list itself." },
       { "path": "tools/check-origins/index.ts", "reason": "Origin-gate source; names the markers in comments and messages." },
-      { "path": "tools/check-origins/index.test.ts", "reason": "Tests of the origin gate need marker strings as fixtures." }
+      { "path": "tools/check-origins/index.test.ts", "reason": "Tests of the origin gate need marker strings as fixtures." },
+      { "path": "DB/questDB.lua", "reason": "Upstream engine file, changed only to make #setquestdb inert. Its two QuestieDB hits (lines 874, 1659 on 2026-11-17) are upstream runtime calls to _G.QuestieLoader:ImportModule(\"QuestieDB\") guarded by `if _G.QuestieLoader`, i.e. a runtime lookup only when the player has Questie installed (CLAUDE.md permits optional runtime interop). No Questie code or data is in the file. Whether ImportModule counts as Questie's public API is not settled; review when questDB.lua's Questie paths are audited." }
     ]
   }
 }

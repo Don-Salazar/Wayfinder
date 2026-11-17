@@ -34,7 +34,7 @@ addon.repStartValue = {
     42000 -- exalted
 }
 
-addon.base = {66,78,71,101,116,73,110,102,111}
+-- WF: removed addon.base, a byte array naming BNGetInfo used only to key the encrypted guide import
 
 function addon.GetSubZones(map)
     if addon.subzoneList then

@@ -1091,22 +1091,10 @@ function addon.ui.v2.configurator:CreateGuideConfigurator()
     settingsButton:SetScript("OnLeave", addon.ui.v2.Button_OnLeave)
     settingsButton:SetScript("OnClick", function(this) addon.settings.OpenSettings() end)
 
-    local importButton = CreateFrame("Button", nil, configurator.frame)
-    importButton:SetSize(30, 30)
-    importButton:SetPoint("RIGHT", settingsButton, "LEFT", -2, 0)
-
-    importButton:SetNormalTexture(addon.ui.v2:GetTexture("icon-btn-import"))
-    importButton:SetPushedTexture(addon.ui.v2:GetTexture("icon-btn-import"))
-    importButton:SetHighlightTexture(addon.ui.v2:GetTexture("icon-btn-import"), "ADD")
-
-    importButton.rxpTooltipText = L("Import guide")
-    importButton:SetScript("OnEnter", addon.ui.v2.Button_OnEnter)
-    importButton:SetScript("OnLeave", addon.ui.v2.Button_OnLeave)
-    importButton:SetScript("OnClick", function(this) addon.guideImporter:Open() end)
-
+    -- WF: removed the import button (guide importer removed); the help button now anchors to settings
     local helpButton = CreateFrame("Button", nil, configurator.frame)
     helpButton:SetSize(30, 30)
-    helpButton:SetPoint("RIGHT", importButton, "LEFT", -2, 0)
+    helpButton:SetPoint("RIGHT", settingsButton, "LEFT", -2, 0)
 
     helpButton:SetNormalTexture(addon.ui.v2:GetTexture("icon-btn-help"))
     helpButton:SetPushedTexture(addon.ui.v2:GetTexture("icon-btn-help"))
@@ -1774,11 +1762,8 @@ function addon.ui.v2.configurator:LoadPages(setDungeonMode)
     end
 
     local function guideCards()
-        local cards = {{
-            label = L("Import Guides"),
-            icon = addon.ui.v2:GetTexture("icon-btn-import"),
-            onClick = function() addon.guideImporter:Open() end
-        }}
+        -- WF: removed the "Import Guides" card (guide importer removed)
+        local cards = {}
 
         if addon.game == "FOREVER" then
             cards[#cards + 1] = {

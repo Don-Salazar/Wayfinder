@@ -2712,13 +2712,7 @@ function RXPFrame:GenerateMenuTable(menu)
         })
     end
 
-    tinsert(menuList, {
-        text = L("Import guide"),
-        notCheckable = 1,
-        func = function()
-            addon.guideImporter:Open()
-        end
-    })
+    -- WF: removed the "Import guide" menu entry (guide importer removed)
 
     if addon.settings.profile and addon.settings.profile.enableTracker then
         -- Don't show leveling report if in Gold Assistant mode

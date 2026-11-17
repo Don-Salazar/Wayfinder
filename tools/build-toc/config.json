@@ -11,7 +11,7 @@
     "Author": "Wayfinder contributors",
     "Version": "0.1.0-dev",
     "OptionalDeps": "inherit",
-    "SavedVariables": "inherit",
+    "SavedVariables": "RXPData, RXPDB, RXPSettings",
     "SavedVariablesPerCharacter": "inherit"
   },
   "drop": [],
